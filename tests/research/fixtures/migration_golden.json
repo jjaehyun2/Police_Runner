@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "train": {
+    "overrides": {
+      "episodes": 12,
+      "max_steps": 34,
+      "resume": "legacy.pt",
+      "start_ep": 7,
+      "custom_tag": "golden"
+    },
+    "conversion_hash": "9f8bd6aa32252d404b9253c144f58f48fcc83503ac76a3f30345bdc2d30b54ba"
+  },
+  "evaluate": {
+    "overrides": {
+      "seeds": 5,
+      "ckpt": "legacy-best.pt",
+      "vision": 175.0
+    },
+    "conversion_hash": "3b55c4e0d45608e365b40623fe354971fc4e013e6a5543bb0e7b07052c85b308"
+  },
+  "checkpoint": {
+    "source_content_hash": "abababababababababababababababababababababababababababababababab",
+    "conversion_hash": "d040bdf39b0a792ecc968c25e01e7441855fb437dd18b624f59646b51dc148e0"
+  }
+}

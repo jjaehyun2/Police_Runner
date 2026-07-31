@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pursuit-evasion-rl"
+version = "0.1.0"
+description = "RL 기반 멀티 에이전트 추격-도주 시뮬레이션"
+requires-python = ">=3.10"
+dependencies = [
+    "networkx>=3.1",
+    "gymnasium>=0.29.0",
+    "stable-baselines3>=2.1.0",
+    "ray[rllib]>=2.7.0",
+    "matplotlib>=3.7.0",
+    "pygame>=2.5.0",
+    "PyYAML>=6.0",
+    "fastapi==0.115.6",
+    "pydantic==2.13.4",
+    "httpx==0.28.1",
+    "osmnx==2.1.1",
+    "torch==2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "hypothesis>=6.82.0",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["pursuit_evasion_rl*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = '-m "not live_osm and not experiment"'
+markers = [
+    "property: Property-based tests using Hypothesis",
+    "offline: Offline-default tests that must not access external services",
+    "live_osm: Opt-in tests that access live OpenStreetMap services",
+    "experiment: Opt-in reproducible training or evaluation experiments",
+]

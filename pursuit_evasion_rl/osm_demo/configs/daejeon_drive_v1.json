@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "config_version": "1.0",
+  "name": "daejeon-central-drive",
+  "display_name": "Daejeon Central Demo",
+  "network_type": "drive",
+  "bbox": {
+    "north": 36.365,
+    "south": 36.345,
+    "east": 127.405,
+    "west": 127.38,
+    "max_area_km2": 10.0
+  }
+}

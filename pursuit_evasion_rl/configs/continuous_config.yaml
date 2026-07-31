@@ -1,0 +1,51 @@
+continuous_env:
+  map_width: 100.0
+  map_height: 100.0
+  num_police: 5
+  max_speed_police: 8.0
+  max_speed_fugitive: 10.0
+  capture_radius: 5.0
+  dt: 0.1
+  max_steps: 1000
+
+road_map:
+  mode: "grid"
+  grid_rows: 5
+  grid_cols: 5
+  grid_spacing: 20.0
+  segment_width: 3.0
+  speed_limit: 10.0
+
+training:
+  algorithm: "GaussianMAPPO"
+  learning_rate: 0.0001
+  discount_factor: 0.99
+  clip_epsilon: 0.2
+  entropy_coefficient: 0.01
+  max_episodes: 10000
+  checkpoint_interval: 100
+  log_interval: 50
+  hidden_dims: [128, 128]
+
+transfer:
+  transfer_from: ""
+
+curriculum:
+  levels:
+    - level_id: 1
+      name: "small_grid"
+      grid_rows: 3
+      grid_cols: 3
+      num_police: 3
+    - level_id: 2
+      name: "medium_grid"
+      grid_rows: 5
+      grid_cols: 5
+      num_police: 5
+    - level_id: 3
+      name: "large_grid"
+      grid_rows: 7
+      grid_cols: 7
+      num_police: 5
+  win_rate_threshold: 0.9
+  promotion_window: 500

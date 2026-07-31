@@ -1,0 +1,20 @@
+schema_version: "1.0"
+map_id: busan-zero-shot-v1
+city: Busan
+role: zero_shot
+query: "[out:json];way[highway](35.15,129.04,35.18,129.07);(._;>;);out;"
+query_geometry:
+  type: Polygon
+  coordinates: [[[129.04, 35.15], [129.07, 35.15], [129.07, 35.18], [129.04, 35.18], [129.04, 35.15]]]
+source: OpenStreetMap contributors / optional integration only
+service: Overpass API
+service_version: pending-explicit-integration
+acquired_at_utc: "1970-01-01T00:00:00Z"
+preprocessing_version: pending-explicit-integration
+metric_crs: EPSG:5179
+raw_path: cache/research/maps/busan-zero-shot-v1/raw_osm.json
+network_path: cache/research/maps/busan-zero-shot-v1/model_network.json
+raw_file_hash: null
+network_file_hash: null
+network_content_hash: null
+polygon_content_hash: 748c9e1dd0e7da38838b20698a04887e5341f368a8ae3cb929dc770a65e9399b

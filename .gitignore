@@ -1,0 +1,37 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# ===== 테스트/캐시 =====
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ===== 체크포인트 (최종 모델만 유지) =====
+checkpoints/*
+!checkpoints/road_pursuit/
+checkpoints/road_pursuit/*
+!checkpoints/road_pursuit/road_pursuit_final.pt
+
+# ===== 학습 로그 =====
+*.log
+
+# ===== 시각화 결과물 (재생성 가능) =====
+pursuit_episode_frames/
+
+# ===== OS / 에디터 =====
+.DS_Store
+Thumbs.db
+*.swp
+
+# ===== 배포 관련 (로컬 캐시성 산출물) =====
+deployment/__pycache__/
+networks/

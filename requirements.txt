@@ -1,0 +1,14 @@
+networkx>=3.1
+gymnasium>=0.29.0
+stable-baselines3>=2.1.0
+ray[rllib]>=2.7.0
+matplotlib>=3.7.0
+pygame>=2.5.0
+PyYAML>=6.0
+fastapi==0.115.6
+pydantic==2.13.4
+httpx==0.28.1
+osmnx==2.1.1
+hypothesis>=6.82.0
+pytest>=7.4.0
+pytest-cov>=4.1.0

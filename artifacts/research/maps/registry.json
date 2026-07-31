@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "description": "Offline-first immutable OSM snapshot registry. Missing files or null hashes import as not_run and are not Actual_OSM evidence.",
+  "registry_contract": {
+    "offline_roots": ["cache", "tests/fixtures"],
+    "external_fetch_default": "disabled",
+    "cache_miss_status": "not_run",
+    "required_training_city": "Daejeon",
+    "required_training_roles": ["train", "validation", "test"],
+    "minimum_non_training_zero_shot_cities": 2,
+    "immutable_identity": [
+      "polygon_content_hash",
+      "raw_file_hash",
+      "network_file_hash",
+      "network_content_hash"
+    ],
+    "external_provenance": [
+      "integration_run_id",
+      "service",
+      "service_version",
+      "query_geometry_hash",
+      "preprocessing_version",
+      "executed_at_utc",
+      "input_content_hash",
+      "raw_output_hash",
+      "network_output_hash",
+      "network_content_hash",
+      "output_content_hash"
+    ]
+  },
+  "entry_schema": {
+    "required": ["config_path"],
+    "properties": {"config_path": {"type": "string", "pattern": "^configs/research/maps/[^/\\\\]+\\.yaml$"}},
+    "additionalProperties": false
+  },
+  "entries": [
+    {"config_path": "configs/research/maps/daejeon_train.yaml"},
+    {"config_path": "configs/research/maps/daejeon_validation.yaml"},
+    {"config_path": "configs/research/maps/daejeon_test.yaml"},
+    {"config_path": "configs/research/maps/seoul_zero_shot.yaml"},
+    {"config_path": "configs/research/maps/busan_zero_shot.yaml"}
+  ]
+}

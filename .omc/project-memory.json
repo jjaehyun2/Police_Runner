@@ -1,0 +1,480 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1785468457266,
+  "projectRoot": "/workspace/cluster",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml",
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "fastapi",
+        "version": null,
+        "category": "backend"
+      },
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": "pip",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "sed -n '140,320p' tests/research/test_paper_bundle.py; echo === CONFTEST ===; find tests -name conftest.py | head; echo; cat tests/conftest.py 2>/dev/null; cat tests/research/conftest.py 2>/dev/null; cat setup.cfg pytest.ini pyproject.toml 2>/dev/null | grep -A15 \"pytest\"",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "__pycache__": {
+      "path": "__pycache__",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1785468457257,
+      "keyFiles": [
+        "demo_intercept_policy.cpython-313.pyc",
+        "demo_pursuit.cpython-313.pyc",
+        "eval_trained.cpython-313.pyc",
+        "osm_obs_aug.cpython-313.pyc",
+        "run_pursuit_eval.cpython-313.pyc"
+      ]
+    },
+    "artifacts": {
+      "path": "artifacts",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1785468457257,
+      "keyFiles": []
+    },
+    "cache": {
+      "path": "cache",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1785468457260,
+      "keyFiles": [
+        "7d3994fe368c1ddbbfcf072595fe293de975d5b0.json",
+        "82992a8cb4f0c892bab1f18e1869812328c250cb.json",
+        "d24b5791524514f8321ccf2b23a1cc28f8a60d69.json"
+      ]
+    },
+    "checkpoints": {
+      "path": "checkpoints",
+      "purpose": null,
+      "fileCount": 6,
+      "lastAccessed": 1785468457261,
+      "keyFiles": [
+        "checkpoint_ep10.pt",
+        "checkpoint_ep20.pt",
+        "latest.pt",
+        "mappo_100ep.pt",
+        "mappo_masked_200ep.pt"
+      ]
+    },
+    "configs": {
+      "path": "configs",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1785468457261,
+      "keyFiles": []
+    },
+    "deployment": {
+      "path": "deployment",
+      "purpose": null,
+      "fileCount": 7,
+      "lastAccessed": 1785468457261,
+      "keyFiles": [
+        "README.md",
+        "__init__.py",
+        "api_server.py",
+        "inference_engine.py",
+        "osm_loader.py"
+      ]
+    },
+    "out_osm_real": {
+      "path": "out_osm_real",
+      "purpose": null,
+      "fileCount": 49,
+      "lastAccessed": 1785468457262,
+      "keyFiles": [
+        "frame_000.png",
+        "frame_001.png",
+        "frame_002.png",
+        "frame_003.png",
+        "frame_004.png"
+      ]
+    },
+    "out_pursuit": {
+      "path": "out_pursuit",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1785468457262,
+      "keyFiles": [
+        "interior_net.pkl"
+      ]
+    },
+    "out_zoom": {
+      "path": "out_zoom",
+      "purpose": null,
+      "fileCount": 141,
+      "lastAccessed": 1785468457263,
+      "keyFiles": [
+        "frame_000.png",
+        "frame_001.png",
+        "frame_002.png",
+        "frame_003.png",
+        "frame_004.png"
+      ]
+    },
+    "pursuit_evasion_rl": {
+      "path": "pursuit_evasion_rl",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1785468457263,
+      "keyFiles": [
+        "__init__.py"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 33,
+      "lastAccessed": 1785468457264,
+      "keyFiles": [
+        "__init__.py",
+        "test_actions.py",
+        "test_checkpoint_preservation.py",
+        "test_config_manager.py",
+        "test_osm_demo_api_v1.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": ".kiro/specs/paper-grade-osm-pursuit-research/tasks.md",
+      "accessCount": 13,
+      "lastAccessed": 1785506194232,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/training/trainer.py",
+      "accessCount": 11,
+      "lastAccessed": 1785479998892,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/errors.py",
+      "accessCount": 10,
+      "lastAccessed": 1785504481101,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/runs/manifest.py",
+      "accessCount": 10,
+      "lastAccessed": 1785504486747,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/domain.py",
+      "accessCount": 10,
+      "lastAccessed": 1785507371989,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/variants/factory.py",
+      "accessCount": 10,
+      "lastAccessed": 1785507388495,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/canonical.py",
+      "accessCount": 9,
+      "lastAccessed": 1785504480926,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_17_baseline_fairness.py",
+      "accessCount": 9,
+      "lastAccessed": 1785507359086,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_variants.py",
+      "accessCount": 8,
+      "lastAccessed": 1785476421339,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/policies/baselines.py",
+      "accessCount": 8,
+      "lastAccessed": 1785480076734,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/budget.py",
+      "accessCount": 8,
+      "lastAccessed": 1785507283272,
+      "type": "file"
+    },
+    {
+      "path": ".kiro/specs/paper-grade-osm-pursuit-research/requirements.md",
+      "accessCount": 7,
+      "lastAccessed": 1785486347523,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_15_ablation_matrix.py",
+      "accessCount": 6,
+      "lastAccessed": 1785476034502,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/variants/observations.py",
+      "accessCount": 6,
+      "lastAccessed": 1785480061514,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/variants/placement.py",
+      "accessCount": 5,
+      "lastAccessed": 1785475601234,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_20_action_mask_support.py",
+      "accessCount": 5,
+      "lastAccessed": 1785475631182,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/variants/rewards.py",
+      "accessCount": 5,
+      "lastAccessed": 1785480066119,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_19_hybrid_smdp.py",
+      "accessCount": 5,
+      "lastAccessed": 1785507305230,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_condition_factory_and_budget.py",
+      "accessCount": 4,
+      "lastAccessed": 1785475645502,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_reward_variants.py",
+      "accessCount": 4,
+      "lastAccessed": 1785476212564,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/training/checkpoint.py",
+      "accessCount": 4,
+      "lastAccessed": 1785478738476,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_27_interruption_equivalence.py",
+      "accessCount": 4,
+      "lastAccessed": 1785479615340,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/variants/stabilization.py",
+      "accessCount": 4,
+      "lastAccessed": 1785480056568,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_migration_regression.py",
+      "accessCount": 3,
+      "lastAccessed": 1785469261453,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/training/equivalence.py",
+      "accessCount": 3,
+      "lastAccessed": 1785478767773,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_manifest_checkpoint.py",
+      "accessCount": 3,
+      "lastAccessed": 1785478865806,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/smdp.py",
+      "accessCount": 3,
+      "lastAccessed": 1785480112269,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_smdp_task_4_1.py",
+      "accessCount": 3,
+      "lastAccessed": 1785480112550,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_13_observation_contracts.py",
+      "accessCount": 3,
+      "lastAccessed": 1785507305032,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/maps/splits.py",
+      "accessCount": 3,
+      "lastAccessed": 1785507351140,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_25_run_manifests.py",
+      "accessCount": 3,
+      "lastAccessed": 1785507420919,
+      "type": "file"
+    },
+    {
+      "path": "pyproject.toml",
+      "accessCount": 2,
+      "lastAccessed": 1785469293674,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_observation_capacity.py",
+      "accessCount": 2,
+      "lastAccessed": 1785469482298,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_02_checkpoint_identity.py",
+      "accessCount": 2,
+      "lastAccessed": 1785475552230,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_baseline_numeric_registry.py",
+      "accessCount": 2,
+      "lastAccessed": 1785475622173,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_placement_stabilization.py",
+      "accessCount": 2,
+      "lastAccessed": 1785475646293,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_14_reward_variants.py",
+      "accessCount": 2,
+      "lastAccessed": 1785476144124,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_16_stabilization_tradeoffs.py",
+      "accessCount": 2,
+      "lastAccessed": 1785476450304,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/policies/masked_mappo.py",
+      "accessCount": 2,
+      "lastAccessed": 1785477148462,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/training/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1785477844236,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_resume_equivalence.py",
+      "accessCount": 2,
+      "lastAccessed": 1785478851588,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/research/maps/registry.py",
+      "accessCount": 2,
+      "lastAccessed": 1785479994412,
+      "type": "file"
+    },
+    {
+      "path": "osm_obs_aug.py",
+      "accessCount": 1,
+      "lastAccessed": 1785469247633,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_masked_mappo_core.py",
+      "accessCount": 1,
+      "lastAccessed": 1785470046245,
+      "type": "file"
+    },
+    {
+      "path": "configs/research/conditions/default_matrix.yaml",
+      "accessCount": 1,
+      "lastAccessed": 1785471068590,
+      "type": "file"
+    },
+    {
+      "path": "pursuit_evasion_rl/osm_demo/observations.py",
+      "accessCount": 1,
+      "lastAccessed": 1785475551986,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_run_manifest.py",
+      "accessCount": 1,
+      "lastAccessed": 1785476942982,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_trainer_cli_integration.py",
+      "accessCount": 1,
+      "lastAccessed": 1785477155214,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/test_resume_checkpoint_io.py",
+      "accessCount": 1,
+      "lastAccessed": 1785477733698,
+      "type": "file"
+    },
+    {
+      "path": "tests/research/properties/test_property_26_resume_roundtrip.py",
+      "accessCount": 1,
+      "lastAccessed": 1785479097252,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

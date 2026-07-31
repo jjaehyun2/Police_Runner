@@ -1,0 +1,39 @@
+schema_version: "1.0"
+matrix_id: default-condition-matrix-v1
+description: >
+  Declarative structure of the pre-registered Condition/ablation matrix built by
+  pursuit_evasion_rl.research.variants.factory.full_condition_matrix(). Content
+  hashes are computed at runtime from the code-defined defaults (observations.py,
+  rewards.py, placement.py, stabilization.py, baselines.py) and are intentionally
+  NOT duplicated here, since a static hash would go stale on any code change.
+scenarios: [interior_contained, boundary_escape]
+default_arm:
+  policy: proposed_masked_mappo_28d
+  observation: observation_28d
+  reward: full_audited_asymmetric_retreat
+  placement: global
+  u_turn_suppression: off
+  hysteresis: off
+axes:
+  observation:
+    requirement: "9.1"
+    arms: [observation_21d, observation_28d]
+  reward:
+    requirement: "9.6-9.7"
+    arms: [full, no_team, no_own, no_time, no_capture, symmetric_retreat]
+  placement:
+    requirement: "10.1"
+    arms: [global, ring, mixed]
+  stabilization:
+    requirement: "10.4"
+    arms: [uturn_off__hyst_off, uturn_on__hyst_off, uturn_off__hyst_on, uturn_on__hyst_on]
+  baseline:
+    requirement: "11.1-11.4"
+    arms: [proposed_masked_mappo_28d, legacy_shared_ppo, encirclement_police, directed_shortest_path, greedy_intercept]
+sample_size:
+  requirement: "7.1-7.6"
+  default_seeds_per_condition: 5
+  default_episodes_per_condition: 500
+  reduced_min_seeds_per_condition: 3
+  reduced_min_episodes_per_condition: 100
+  decision_source: pursuit_evasion_rl.research.budget.decide_sample_size

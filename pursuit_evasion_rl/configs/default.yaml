@@ -1,0 +1,35 @@
+network:
+  mode: "random"
+  num_nodes: 20
+  density: 0.3
+  fixed_edges: null
+
+agents:
+  num_police: 3
+
+environment:
+  max_steps: 500
+
+training:
+  algorithm: "MAPPO"
+  learning_rate: 0.0003
+  discount_factor: 0.99
+  epsilon: 0.1
+  batch_size: 64
+  replay_buffer_size: 100000
+  max_episodes: 10000
+  checkpoint_interval: 100
+
+rewards:
+  terminal_reward: 1.0
+  shaping_scale: 0.1
+  cooperation_bonus: 0.05
+  invalid_action_penalty: -0.01
+
+evaluation:
+  num_episodes: 100
+  model_path: "checkpoints/latest.zip"
+
+visualization:
+  backend: "matplotlib"
+  frame_interval_ms: 500

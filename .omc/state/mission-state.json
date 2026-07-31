@@ -1,0 +1,271 @@
+{
+  "updatedAt": "2026-07-31T14:16:35.218Z",
+  "missions": [
+    {
+      "id": "session:04f9e0b0-9fab-4ffe-bded-cb6149263e90:none",
+      "source": "session",
+      "name": "none",
+      "objective": "Session mission",
+      "createdAt": "2026-07-31T03:49:07.357Z",
+      "updatedAt": "2026-07-31T14:16:35.218Z",
+      "status": "running",
+      "workerCount": 22,
+      "taskCounts": {
+        "total": 22,
+        "pending": 0,
+        "blocked": 0,
+        "inProgress": 6,
+        "completed": 16,
+        "failed": 0
+      },
+      "agents": [
+        {
+          "name": "placement-stabilization:aplacem",
+          "role": "placement-stabilization",
+          "ownership": "aplacement-stabilization-137ace3e11eb58f8",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T14:00:00.094Z"
+        },
+        {
+          "name": "baseline-registry:abaseli",
+          "role": "baseline-registry",
+          "ownership": "abaseline-registry-051d19e09d95b305",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T04:04:43.845Z"
+        },
+        {
+          "name": "obs-tests:aobs-te",
+          "role": "obs-tests",
+          "ownership": "aobs-tests-b959eef97dec69e3",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T05:43:41.775Z"
+        },
+        {
+          "name": "reward-property:areward",
+          "role": "reward-property",
+          "ownership": "areward-property-72ca722a4122c8ef",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T05:35:15.357Z"
+        },
+        {
+          "name": "matrix-tradeoff-property:amatrix",
+          "role": "matrix-tradeoff-property",
+          "ownership": "amatrix-tradeoff-property-dc46dc370d72c43f",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T05:39:53.244Z"
+        },
+        {
+          "name": "baseline-fairness-property:abaseli",
+          "role": "baseline-fairness-property",
+          "ownership": "abaseline-fairness-property-d1631b8563a7e590",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T05:38:41.121Z"
+        },
+        {
+          "name": "checkpoint-resume:acheckp",
+          "role": "checkpoint-resume",
+          "ownership": "acheckpoint-resume-2298dd4e41c0358b",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T06:16:51.706Z"
+        },
+        {
+          "name": "paired-evaluator:apaired",
+          "role": "paired-evaluator",
+          "ownership": "apaired-evaluator-f16ab3ac03a023fc",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T06:59:15.492Z"
+        },
+        {
+          "name": "behavior-metrics:abehavi",
+          "role": "behavior-metrics",
+          "ownership": "abehavior-metrics-9fed8f58fd39b39a",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T06:55:27.031Z"
+        },
+        {
+          "name": "physical-plausibility:aphysic",
+          "role": "physical-plausibility",
+          "ownership": "aphysical-plausibility-411e4288231f5420",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T06:54:07.970Z"
+        },
+        {
+          "name": "paired-statistics:apaired",
+          "role": "paired-statistics",
+          "ownership": "apaired-statistics-8dad0689b88a8dc9",
+          "status": "running",
+          "currentStep": null,
+          "latestUpdate": null,
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T06:42:42.778Z"
+        },
+        {
+          "name": "protocol-freeze:aprotoc",
+          "role": "protocol-freeze",
+          "ownership": "aprotocol-freeze-ded7ab67dbd4bd75",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T08:44:26.561Z"
+        },
+        {
+          "name": "execution-ledger:aexecut",
+          "role": "execution-ledger",
+          "ownership": "aexecution-ledger-015cdf8418a135e4",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T08:38:42.137Z"
+        },
+        {
+          "name": "citation-ledger:acitati",
+          "role": "citation-ledger",
+          "ownership": "acitation-ledger-9284f5ba041e4074",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T08:40:35.328Z"
+        },
+        {
+          "name": "scope-validator:ascope-",
+          "role": "scope-validator",
+          "ownership": "ascope-validator-1b74b25094497a92",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T08:41:11.366Z"
+        },
+        {
+          "name": "claim-gate:aclaim-",
+          "role": "claim-gate",
+          "ownership": "aclaim-gate-cbdd19b3aac938c8",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T09:00:03.579Z"
+        },
+        {
+          "name": "paper-bundle:apaper-",
+          "role": "paper-bundle",
+          "ownership": "apaper-bundle-7e956566c16c6284",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T13:54:00.677Z"
+        },
+        {
+          "name": "props-8-12:aprops-",
+          "role": "props-8-12",
+          "ownership": "aprops-8-12-ce8126efa671bd21",
+          "status": "running",
+          "currentStep": null,
+          "latestUpdate": null,
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T14:14:29.721Z"
+        },
+        {
+          "name": "props-21-24:aprops-",
+          "role": "props-21-24",
+          "ownership": "aprops-21-24-4f193f41c662473f",
+          "status": "running",
+          "currentStep": null,
+          "latestUpdate": null,
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T14:14:50.883Z"
+        },
+        {
+          "name": "props-3-4-7:aprops-",
+          "role": "props-3-4-7",
+          "ownership": "aprops-3-4-7-90b1dc981e82cc23",
+          "status": "running",
+          "currentStep": null,
+          "latestUpdate": null,
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T14:15:12.893Z"
+        },
+        {
+          "name": "props-28-34:aprops-",
+          "role": "props-28-34",
+          "ownership": "aprops-28-34-5b984bd2a5ad9599",
+          "status": "running",
+          "currentStep": null,
+          "latestUpdate": null,
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T14:15:49.319Z"
+        },
+        {
+          "name": "offline-llm:aofflin",
+          "role": "offline-llm",
+          "ownership": "aoffline-llm-7ad0234030229e04",
+          "status": "running",
+          "currentStep": null,
+          "latestUpdate": null,
+          "completedSummary": null,
+          "updatedAt": "2026-07-31T14:16:35.218Z"
+        }
+      ],
+      "timeline": [
+        {
+          "id": "session-start:aprops-3-4-7-90b1dc981e82cc23:2026-07-31T14:15:12.893Z",
+          "at": "2026-07-31T14:15:12.893Z",
+          "kind": "update",
+          "agent": "props-3-4-7:aprops-",
+          "detail": "started props-3-4-7:aprops-",
+          "sourceKey": "session-start:aprops-3-4-7-90b1dc981e82cc23"
+        },
+        {
+          "id": "session-start:aprops-28-34-5b984bd2a5ad9599:2026-07-31T14:15:49.319Z",
+          "at": "2026-07-31T14:15:49.319Z",
+          "kind": "update",
+          "agent": "props-28-34:aprops-",
+          "detail": "started props-28-34:aprops-",
+          "sourceKey": "session-start:aprops-28-34-5b984bd2a5ad9599"
+        },
+        {
+          "id": "session-start:aoffline-llm-7ad0234030229e04:2026-07-31T14:16:35.218Z",
+          "at": "2026-07-31T14:16:35.218Z",
+          "kind": "update",
+          "agent": "offline-llm:aofflin",
+          "detail": "started offline-llm:aofflin",
+          "sourceKey": "session-start:aoffline-llm-7ad0234030229e04"
+        }
+      ]
+    }
+  ]
+}

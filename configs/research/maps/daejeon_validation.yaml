@@ -1,0 +1,20 @@
+schema_version: "1.0"
+map_id: daejeon-validation-v1
+city: Daejeon
+role: validation
+query: "legacy bounded Overpass cache; exact original query unavailable"
+query_geometry:
+  type: Polygon
+  coordinates: [[[127.390, 36.350], [127.402, 36.350], [127.402, 36.362], [127.390, 36.362], [127.390, 36.350]]]
+source: OpenStreetMap contributors / Overpass API legacy cache
+service: Overpass API
+service_version: "0.7.62.11-87bfad18"
+acquired_at_utc: "2026-07-23T17:14:21Z"
+preprocessing_version: pending-network-snapshot
+metric_crs: EPSG:5179
+raw_path: cache/82992a8cb4f0c892bab1f18e1869812328c250cb.json
+network_path: cache/research/maps/daejeon-validation-v1/model_network.json
+raw_file_hash: 33fd809151e8e1bb3ba54dfcc7d40b25f01416636a60b9976497fb1ed41cc4f0
+network_file_hash: null
+network_content_hash: null
+polygon_content_hash: 9ef1f2364da710691dc0dc4b4035e9a6e8e8c43fbc47ff65a1c45bfd92b9d01f

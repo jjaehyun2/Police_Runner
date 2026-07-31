@@ -1,0 +1,20 @@
+schema_version: "1.0"
+map_id: seoul-zero-shot-v1
+city: Seoul
+role: zero_shot
+query: "[out:json];way[highway](37.54,126.97,37.57,127.00);(._;>;);out;"
+query_geometry:
+  type: Polygon
+  coordinates: [[[126.97, 37.54], [127.00, 37.54], [127.00, 37.57], [126.97, 37.57], [126.97, 37.54]]]
+source: OpenStreetMap contributors / optional integration only
+service: Overpass API
+service_version: pending-explicit-integration
+acquired_at_utc: "1970-01-01T00:00:00Z"
+preprocessing_version: pending-explicit-integration
+metric_crs: EPSG:5179
+raw_path: cache/research/maps/seoul-zero-shot-v1/raw_osm.json
+network_path: cache/research/maps/seoul-zero-shot-v1/model_network.json
+raw_file_hash: null
+network_file_hash: null
+network_content_hash: null
+polygon_content_hash: 5338bc174bf7c74e43bc53d88442683101e18df24e5a5e3a8b352650372398ae

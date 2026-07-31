@@ -1,0 +1,8 @@
+fastapi==0.115.6
+uvicorn>=0.23.0
+pydantic==2.13.4
+httpx==0.28.1
+osmnx==2.1.1
+torch>=2.0.0
+numpy>=1.24.0
+networkx>=3.0
