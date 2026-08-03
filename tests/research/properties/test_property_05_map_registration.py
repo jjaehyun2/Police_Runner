@@ -27,6 +27,8 @@ from pursuit_evasion_rl.research.maps.registry import (
 # **Property 5: Map registration is exclusive and scenario-consistent**
 # **Validates: Requirements 5.1–5.9, 19.2**
 
+pytestmark = pytest.mark.offline
+
 _PBT_SETTINGS = settings(max_examples=100, deadline=None)
 _TOKEN_ALPHABET = ascii_lowercase + digits
 

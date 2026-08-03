@@ -367,8 +367,16 @@ class ResearchMaskedMAPPO:
         rng: torch.Generator | None = None,
         *,
         officer_id: int = 0,
+        logit_bias: Tensor | None = None,
     ) -> ActionSample:
-        """Sample from one already-sealed rollout mask (never from environment state)."""
+        """Sample from one already-sealed rollout mask (never from environment state).
+
+        ``logit_bias`` is an optional ``[action_dim]`` tensor added to the raw
+        actor logits before masking -- e.g. a stabilization Condition's soft
+        u-turn penalty (Requirement 10.5).  It is applied *before* masking, so
+        it can never make a masked-illegal action selectable; omitting it (the
+        default) reproduces this method's prior behavior exactly.
+        """
         if not isinstance(stored_mask, StoredActionMask):
             _fail("UNSEALED_ACTION_MASK", "sample requires a StoredActionMask")
         StoredActionMask(stored_mask.mask_bytes, stored_mask.mask_hash, stored_mask.action_dim)
@@ -378,8 +386,15 @@ class ResearchMaskedMAPPO:
         _require_finite("actor_obs", observation)
         if not isinstance(officer_id, int) or not 0 <= officer_id < self.num_officers:
             _fail("MALFORMED_OFFICER_IDS", "officer_id is outside configured range", actual=officer_id)
+        if logit_bias is not None:
+            bias = torch.as_tensor(logit_bias)
+            if bias.ndim != 1 or bias.shape[0] != self.action_dim:
+                _fail("MALFORMED_LOGIT_BIAS", "logit_bias must have shape [action_dim]", expected=(self.action_dim,), actual=tuple(bias.shape))
+            _require_finite("logit_bias", bias)
         with torch.no_grad():
             logits = self.actor_logits(observation.unsqueeze(0), torch.tensor([officer_id], dtype=torch.long, device=self.device))
+            if logit_bias is not None:
+                logits = logits + bias.to(device=logits.device, dtype=logits.dtype).unsqueeze(0)
             distribution = self.masked_categorical.create(logits, stored_mask)
             action_tensor = distribution.sample(generator=rng)
             log_prob = distribution.log_prob(action_tensor)

@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "entries": [
+    {"config_path": "configs/research/maps/daejeon_train.yaml"},
+    {"config_path": "configs/research/maps/daejeon_validation.yaml"},
+    {"config_path": "configs/research/maps/daejeon_test.yaml"},
+    {"config_path": "configs/research/maps/busan_zero_shot.yaml"},
+    {"config_path": "configs/research/maps/seoul_zero_shot.yaml"}
+  ]
+}

@@ -2,19 +2,19 @@ schema_version: "1.0"
 map_id: daejeon-test-v1
 city: Daejeon
 role: test
-query: "legacy bounded Overpass cache; exact original query unavailable"
+query: "live bounded OSMnx/Overpass drive-network query over the recorded bbox"
 query_geometry:
   type: Polygon
   coordinates: [[[127.410, 36.338], [127.422, 36.338], [127.422, 36.350], [127.410, 36.350], [127.410, 36.338]]]
-source: OpenStreetMap contributors / Overpass API legacy cache
+source: OpenStreetMap contributors via OSMnx
 service: Overpass API
-service_version: "0.7.62.11-87bfad18"
-acquired_at_utc: "2026-07-23T16:48:51Z"
-preprocessing_version: pending-network-snapshot
-metric_crs: EPSG:5179
-raw_path: cache/7d3994fe368c1ddbbfcf072595fe293de975d5b0.json
-network_path: cache/research/maps/daejeon-test-v1/model_network.json
-raw_file_hash: 47ce9a08d5edf9fc0022299f5ff7771fe2d3274b0ea28204c229dd9af85719cf
-network_file_hash: null
-network_content_hash: null
+service_version: "osmnx==2.1.1"
+acquired_at_utc: "2026-08-01T06:28:08Z"
+preprocessing_version: coarsener-v1-live
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/a9b681aea3d147cc2d0cbd36710a147b0b88d13cf6ed7d2a7a3afb3c60f46a9c/raw_osm.json
+network_path: cache/research/maps/a9b681aea3d147cc2d0cbd36710a147b0b88d13cf6ed7d2a7a3afb3c60f46a9c/model_network.json
+raw_file_hash: d937c5122f849447305704046558ad49bcc8226d8cd4be387f8af159b51d62da
+network_file_hash: 3720c2d33a71d6eb2773026097e0d767b25bdfec058b746e24d79c90a17ca4aa
+network_content_hash: 3720c2d33a71d6eb2773026097e0d767b25bdfec058b746e24d79c90a17ca4aa
 polygon_content_hash: 902ad20ee56ea81b9060714e257552b0c6503df1cc1bd25363cde4bdfabc6162

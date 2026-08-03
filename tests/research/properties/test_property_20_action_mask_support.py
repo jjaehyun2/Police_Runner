@@ -19,6 +19,8 @@ from pursuit_evasion_rl.research.policies.masked_mappo import (
 # **Property 20: Action-mask support is identical during sampling and PPO recomputation**
 # **Validates: Requirements 19.3-19.4**
 
+pytestmark = pytest.mark.offline
+
 _PBT_SETTINGS = settings(max_examples=100, deadline=None)
 
 ACTION_DIM = 4

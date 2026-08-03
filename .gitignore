@@ -35,3 +35,15 @@ Thumbs.db
 # ===== 배포 관련 (로컬 캐시성 산출물) =====
 deployment/__pycache__/
 networks/
+
+# ===== 연구 파이프라인 산출물/캐시 (재생성 가능, 대용량) =====
+cache/
+artifacts/research/checkpoints/
+artifacts/research/protocols/
+artifacts/research/runs/
+.quality-gate/
+
+# ===== oh-my-claudecode 오케스트레이션 로컬 상태 (프로젝트 콘텐츠 아님) =====
+.omc/sessions/
+.omc/state/checkpoints/
+.omc/state/sessions/

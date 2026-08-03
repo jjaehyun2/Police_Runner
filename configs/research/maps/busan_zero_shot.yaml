@@ -2,19 +2,19 @@ schema_version: "1.0"
 map_id: busan-zero-shot-v1
 city: Busan
 role: zero_shot
-query: "[out:json];way[highway](35.15,129.04,35.18,129.07);(._;>;);out;"
+query: "live bounded OSMnx/Overpass drive-network query over the recorded bbox"
 query_geometry:
   type: Polygon
   coordinates: [[[129.04, 35.15], [129.07, 35.15], [129.07, 35.18], [129.04, 35.18], [129.04, 35.15]]]
-source: OpenStreetMap contributors / optional integration only
+source: OpenStreetMap contributors via OSMnx
 service: Overpass API
-service_version: pending-explicit-integration
-acquired_at_utc: "1970-01-01T00:00:00Z"
-preprocessing_version: pending-explicit-integration
-metric_crs: EPSG:5179
-raw_path: cache/research/maps/busan-zero-shot-v1/raw_osm.json
-network_path: cache/research/maps/busan-zero-shot-v1/model_network.json
-raw_file_hash: null
-network_file_hash: null
-network_content_hash: null
+service_version: "osmnx==2.1.1"
+acquired_at_utc: "2026-08-01T11:44:00Z"
+preprocessing_version: coarsener-v1-live
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/67a81550be0f373a806ef9763c736ce01c5558c2df962a13c01c09c8de2026c3/raw_osm.json
+network_path: cache/research/maps/67a81550be0f373a806ef9763c736ce01c5558c2df962a13c01c09c8de2026c3/model_network.json
+raw_file_hash: b2a03bb42b3bffad301e7b64a5df65afdb81bbead990518f65ebb2dc3b3d3b0f
+network_file_hash: f50d529fe035a4738338018ab6f37c9c13abcb036d301207c17f8cd0e6310928
+network_content_hash: f50d529fe035a4738338018ab6f37c9c13abcb036d301207c17f8cd0e6310928
 polygon_content_hash: 748c9e1dd0e7da38838b20698a04887e5341f368a8ae3cb929dc770a65e9399b

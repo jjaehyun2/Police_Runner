@@ -17,6 +17,8 @@ from pursuit_evasion_rl.research.smdp import (
 # **Property 19: Road-arc transitions obey the hybrid SMDP**
 # **Validates: Requirements 13.7, 19.4**
 
+pytestmark = pytest.mark.offline
+
 _PBT_SETTINGS = settings(max_examples=100, deadline=None)
 _LENGTH = 1000.0
 

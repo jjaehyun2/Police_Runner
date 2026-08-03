@@ -2,19 +2,19 @@ schema_version: "1.0"
 map_id: seoul-zero-shot-v1
 city: Seoul
 role: zero_shot
-query: "[out:json];way[highway](37.54,126.97,37.57,127.00);(._;>;);out;"
+query: "live bounded OSMnx/Overpass drive-network query over the recorded bbox"
 query_geometry:
   type: Polygon
   coordinates: [[[126.97, 37.54], [127.00, 37.54], [127.00, 37.57], [126.97, 37.57], [126.97, 37.54]]]
-source: OpenStreetMap contributors / optional integration only
+source: OpenStreetMap contributors via OSMnx
 service: Overpass API
-service_version: pending-explicit-integration
-acquired_at_utc: "1970-01-01T00:00:00Z"
-preprocessing_version: pending-explicit-integration
-metric_crs: EPSG:5179
-raw_path: cache/research/maps/seoul-zero-shot-v1/raw_osm.json
-network_path: cache/research/maps/seoul-zero-shot-v1/model_network.json
-raw_file_hash: null
-network_file_hash: null
-network_content_hash: null
+service_version: "osmnx==2.1.1"
+acquired_at_utc: "2026-08-01T11:44:25Z"
+preprocessing_version: coarsener-v1-live
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/b20b1b20aae480c33550868b893a4a106c1053bb1a18a1b6388cf1a83f4d309d/raw_osm.json
+network_path: cache/research/maps/b20b1b20aae480c33550868b893a4a106c1053bb1a18a1b6388cf1a83f4d309d/model_network.json
+raw_file_hash: 7086659585a7a853e2d6f5a5ce17e0ec5af547967da3361fb21e8939a82a5142
+network_file_hash: 9b324e8676c82a20af934b7deba22d40a0e983f910c9dfa320f19b423e41f699
+network_content_hash: 9b324e8676c82a20af934b7deba22d40a0e983f910c9dfa320f19b423e41f699
 polygon_content_hash: 5338bc174bf7c74e43bc53d88442683101e18df24e5a5e3a8b352650372398ae

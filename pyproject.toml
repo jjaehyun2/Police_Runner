@@ -40,4 +40,9 @@ markers = [
     "offline: Offline-default tests that must not access external services",
     "live_osm: Opt-in tests that access live OpenStreetMap services",
     "experiment: Opt-in reproducible training or evaluation experiments",
+    "unit: Fast, isolated tests of a single function or class",
+    "regression: Tests pinned to a previously observed defect or migration",
+    "integration: Tests exercising more than one module together",
+    "statistical: Tests of statistical procedures against fixed numeric references",
+    "smoke: End-to-end offline pipeline tests gating pilot admission",
 ]

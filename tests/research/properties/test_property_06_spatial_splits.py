@@ -25,6 +25,10 @@ from pursuit_evasion_rl.research.maps.splits import (
     validate_spatial_split,
 )
 
+# **Property 6: Spatial splits are geometrically and genealogically disjoint**
+# **Validates: Requirements 6.2, 6.8, 19.3**
+
+pytestmark = pytest.mark.offline
 
 positive_buffers = st.floats(
     min_value=0.5,

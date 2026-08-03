@@ -28,6 +28,8 @@ from pursuit_evasion_rl.research.preservation import (
 # **Property 2: Preserved checkpoint identity gates every run**
 # **Validates: Requirements 2.3–2.6**
 
+pytestmark = pytest.mark.offline
+
 _PBT_SETTINGS = settings(max_examples=100, deadline=None)
 _SAFE_ALPHABET = ascii_lowercase + digits + "_-"
 artifact_bytes = st.binary(min_size=1, max_size=512)

@@ -39,7 +39,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import re
-from typing import Any, Iterable, Mapping, Protocol, Sequence, runtime_checkable
+from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence, runtime_checkable
 
 import numpy as np
 
@@ -52,6 +52,7 @@ from pursuit_evasion_rl.osm_demo.models import (
     VehiclePlacement,
     validate_vehicle_placements,
 )
+from pursuit_evasion_rl.osm_demo.policies import STAY_ACTION
 
 from ..canonical import canonical_json, content_hash
 from ..domain import DataKind, EpisodeOutcome, MapScenario, PersistedModel, exactly_one
@@ -791,29 +792,57 @@ class PolicyEpisodeRecord(PersistedModel):
 
 
 def replay_episode(
-    case: EpisodeCase, policy: FrozenPolicy, *, network: ModelNetwork
+    case: EpisodeCase, policy: FrozenPolicy | None = None, *, network: ModelNetwork,
+    observation_adapter_factory: Callable[[ModelNetwork, float, float], Any] | None = None,
+    team_policy: Any | None = None,
 ) -> EpisodeReplayRecord:
-    """Re-run one sealed case under a frozen policy, deterministically."""
+    """Re-run one sealed case under a frozen policy, deterministically.
+
+    ``observation_adapter_factory`` defaults to reproducing the audited 28D
+    adapter exactly (the prior hardcoded behavior); only an observation-
+    ablation policy trained under a different adapter (e.g. the 21D one)
+    needs to supply a matching factory here, or its features would not match
+    the dimension the policy was actually trained on.
+
+    ``team_policy`` is the alternate path for the audited numeric baselines
+    (``GreedyInterceptPolice``, ``directed_shortest_path_policy``'s
+    ``BaselinePolicePolicy``), whose ``recommend(*, police, fugitive, step,
+    max_steps, incoming_headings=None)`` interface needs every officer's raw
+    ``VehiclePlacement`` at once -- info a single officer's encoded
+    ``OfficerObservation`` cannot losslessly reconstruct. Exactly one of
+    ``policy``/``team_policy`` must be supplied; when ``policy`` is given
+    (the prior contract), behavior is unchanged byte-for-byte.
+    """
     if not isinstance(case, EpisodeCase):
         raise ResearchValidationError("INVALID_EPISODE_CASE", "case must be an EpisodeCase", path="case")
     if not isinstance(network, ModelNetwork):
         raise ResearchValidationError("INVALID_NETWORK", "network must be a ModelNetwork", path="network")
+    if (policy is None) == (team_policy is None):
+        raise ResearchValidationError(
+            "INVALID_POLICY_ARGUMENT", "exactly one of policy or team_policy must be supplied", path="policy"
+        )
     actual_map_hash = content_hash(network)
     if actual_map_hash != case.map_hash:
         raise ResearchValidationError(
             "REPLAY_MAP_MISMATCH", "the supplied network is not the sealed map",
             path="network", expected=case.map_hash, actual=actual_map_hash,
         )
-    policy_id = _required(getattr(policy, "policy_id", ""), "policy.policy_id")
+    if team_policy is not None:
+        policy_id = _required(getattr(team_policy, "profile", ""), "team_policy.profile")
+    else:
+        policy_id = _required(getattr(policy, "policy_id", ""), "policy.policy_id")
 
     env = OSMRoadPursuitEnv(network, case.environment)
     env.reset(
         seed=case.fugitive_rng.seed,
         options={"police": list(case.police), "fugitive": case.fugitive},
     )
-    adapter = Observation28DAdapter(
-        network, clip_distance_m=REPLAY_CLIP_DISTANCE_M, near_radius_m=REPLAY_NEAR_RADIUS_M
-    )
+    adapter = None
+    if team_policy is None:
+        build_adapter = observation_adapter_factory or (
+            lambda net, clip, near: Observation28DAdapter(net, clip_distance_m=clip, near_radius_m=near)
+        )
+        adapter = build_adapter(network, REPLAY_CLIP_DISTANCE_M, REPLAY_NEAR_RADIUS_M)
     evader = GoalEvader(
         network,
         rng=case.fugitive_rng.generator(),
@@ -827,38 +856,78 @@ def replay_episode(
         masks = env.action_masks()
         actions: dict[str, Any] = {}
         officer_actions: list[int] = []
-        for officer_id in range(POLICE_COUNT):
-            mask = tuple(bool(value) for value in masks[f"police_{officer_id}"])
-            features = tuple(
-                float(value)
-                for value in adapter.observe(
-                    police_index=officer_id,
-                    police=state.police,
-                    fugitive=state.fugitive,
-                    step=state.step,
-                    max_steps=case.environment.max_steps,
-                    incoming_heading=state.incoming_headings.get(f"police_{officer_id}"),
-                )
+        if team_policy is not None:
+            incoming_headings = tuple(
+                state.incoming_headings.get(f"police_{officer_id}") for officer_id in range(POLICE_COUNT)
             )
-            action = policy.act(
-                OfficerObservation(
-                    officer_id=officer_id, step=state.step, features=features, action_mask=mask
-                )
+            recommendations = team_policy.recommend(
+                police=state.police, fugitive=state.fugitive, step=state.step,
+                max_steps=case.environment.max_steps, incoming_headings=incoming_headings,
             )
-            if isinstance(action, bool) or not isinstance(action, int):
+            if len(recommendations) != POLICE_COUNT:
                 raise ResearchValidationError(
-                    "INVALID_REPLAY_ACTION", "a frozen policy returns an integer action",
-                    path=f"police_{officer_id}", actual=action,
+                    "INVALID_TEAM_RECOMMENDATION", "team_policy.recommend must return one recommendation per officer",
+                    path="team_policy", expected=POLICE_COUNT, actual=len(recommendations),
                 )
-            if not 0 <= action < len(mask) or not mask[action]:
-                raise ResearchValidationError(
-                    "ILLEGAL_REPLAY_ACTION", "a frozen policy emitted an action outside its legal mask",
-                    path=f"police_{officer_id}", expected=[
-                        index for index, legal in enumerate(mask) if legal
-                    ], actual=action,
+            for officer_id in range(POLICE_COUNT):
+                mask = tuple(bool(value) for value in masks[f"police_{officer_id}"])
+                # An officer mid-segment has exactly one legal action (stay --
+                # it is still committed to the arc it already chose); a team
+                # policy's recommend() has no notion of that and always
+                # projects forward to its next real decision point, so its
+                # answer only applies once the officer is actually parked and
+                # facing a live choice.
+                if sum(mask) <= 1:
+                    action = STAY_ACTION
+                else:
+                    action = recommendations[officer_id].action_index
+                if isinstance(action, bool) or not isinstance(action, int):
+                    raise ResearchValidationError(
+                        "INVALID_REPLAY_ACTION", "a team policy recommendation carries an integer action",
+                        path=f"police_{officer_id}", actual=action,
+                    )
+                if not 0 <= action < len(mask) or not mask[action]:
+                    raise ResearchValidationError(
+                        "ILLEGAL_REPLAY_ACTION", "a team policy emitted an action outside its legal mask",
+                        path=f"police_{officer_id}", expected=[
+                            index for index, legal in enumerate(mask) if legal
+                        ], actual=action,
+                    )
+                actions[f"police_{officer_id}"] = action
+                officer_actions.append(action)
+        else:
+            for officer_id in range(POLICE_COUNT):
+                mask = tuple(bool(value) for value in masks[f"police_{officer_id}"])
+                features = tuple(
+                    float(value)
+                    for value in adapter.observe(
+                        police_index=officer_id,
+                        police=state.police,
+                        fugitive=state.fugitive,
+                        step=state.step,
+                        max_steps=case.environment.max_steps,
+                        incoming_heading=state.incoming_headings.get(f"police_{officer_id}"),
+                    )
                 )
-            actions[f"police_{officer_id}"] = action
-            officer_actions.append(action)
+                action = policy.act(
+                    OfficerObservation(
+                        officer_id=officer_id, step=state.step, features=features, action_mask=mask
+                    )
+                )
+                if isinstance(action, bool) or not isinstance(action, int):
+                    raise ResearchValidationError(
+                        "INVALID_REPLAY_ACTION", "a frozen policy returns an integer action",
+                        path=f"police_{officer_id}", actual=action,
+                    )
+                if not 0 <= action < len(mask) or not mask[action]:
+                    raise ResearchValidationError(
+                        "ILLEGAL_REPLAY_ACTION", "a frozen policy emitted an action outside its legal mask",
+                        path=f"police_{officer_id}", expected=[
+                            index for index, legal in enumerate(mask) if legal
+                        ], actual=action,
+                    )
+                actions[f"police_{officer_id}"] = action
+                officer_actions.append(action)
         actions[FUGITIVE_ID] = evader.env_provider(
             network, tuple(placement_position(network, placement) for placement in state.police)
         )

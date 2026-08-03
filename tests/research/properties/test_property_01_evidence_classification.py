@@ -33,6 +33,8 @@ from pursuit_evasion_rl.research.errors import ResearchValidationError
 # **Property 1: Evidence classifications are exclusive, precedence-safe, and type-safe**
 # **Validates: Requirements 1.1–1.7, 1.9, 4.6–4.7, 19.1**
 
+pytestmark = pytest.mark.offline
+
 _PBT_SETTINGS = settings(max_examples=100, deadline=None)
 _TOKEN = st.text(ascii_lowercase + digits, min_size=1, max_size=12)
 

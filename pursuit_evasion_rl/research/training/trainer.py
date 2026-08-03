@@ -1,14 +1,14 @@
 """Leakage-safe hybrid-SMDP trainer for exact stored-mask MAPPO."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace as _dataclass_replace
 from datetime import datetime, timezone
 import hashlib
 import json
 import math
 from pathlib import Path
 import re
-from typing import Sequence
+from typing import Any, Callable, Sequence
 from uuid import uuid4
 
 import numpy as np
@@ -17,14 +17,25 @@ import torch
 from pursuit_evasion_rl.osm_demo.environment import FUGITIVE_ID, OSMRoadPursuitEnv, STAY_ACTION
 from pursuit_evasion_rl.osm_demo.metrics import placement_position
 from pursuit_evasion_rl.osm_demo.models import EpisodeConfig, EpisodeOutcome, ModelNetwork, POLICE_COUNT
+from pursuit_evasion_rl.osm_demo.policies import build_action_mask
 from pursuit_evasion_rl.research.errors import ResearchValidationError
 from pursuit_evasion_rl.research.maps.splits import TuningDataView
-from pursuit_evasion_rl.research.policies.baselines import GoalEvader, _Graph
+from pursuit_evasion_rl.research.policies.baselines import GoalEvader, _Graph, decision_intersection_id
 from pursuit_evasion_rl.research.policies.masked_mappo import (
     MaskedMAPPOBatch, PPOLoss, ResearchMaskedMAPPO, StoredActionMask,
 )
 from pursuit_evasion_rl.research.smdp import AsyncDecisionTransitionBuffer, DecisionEpoch, DecisionTransition
 from pursuit_evasion_rl.research.variants.observations import OBSERVATION_28D_DIM, Observation28DAdapter
+from pursuit_evasion_rl.research.variants.placement import PlacementCurriculumConfig, generate_placement
+from pursuit_evasion_rl.research.variants.rewards import RewardComponentSet, total_rewards
+from pursuit_evasion_rl.research.variants.stabilization import StabilizationCondition, u_turn_penalties
+
+#: Builds the observation adapter a rollout uses; overridable so an
+#: observation-ablation Condition can swap in ``Observation21DAdapter`` (or any
+#: adapter sharing the same ``observe(...)`` call signature) without touching
+#: the rollout loop itself.  The default reproduces exactly what this trainer
+#: has always built.
+ObservationAdapterFactory = Callable[[ModelNetwork, float, float], Any]
 
 TRAINER_SCHEMA_VERSION = "research-masked-mappo-trainer-v1"
 DEFAULT_OUTPUT_ROOT = Path("artifacts/research/checkpoints")
@@ -154,6 +165,11 @@ class ResearchTrainer:
         output_root: str | Path = DEFAULT_OUTPUT_ROOT,
         run_id: str | None = None,
         policy: ResearchMaskedMAPPO | None = None,
+        reward_components: RewardComponentSet | None = None,
+        observation_dim: int | None = None,
+        observation_adapter_factory: ObservationAdapterFactory | None = None,
+        placement_config: PlacementCurriculumConfig | None = None,
+        stabilization_condition: StabilizationCondition | None = None,
     ) -> None:
         if not isinstance(tuning_data, TuningDataView):
             raise ResearchValidationError("INVALID_TUNING_VIEW", "trainer requires a leakage-safe TuningDataView")
@@ -179,10 +195,37 @@ class ResearchTrainer:
             capture_radius_m=config.capture_radius_m,
             max_steps=config.max_steps,
         )
-        critic_dim = OBSERVATION_28D_DIM * POLICE_COUNT
+        # Requirement 9.6-9.7: an explicit RewardComponentSet always wins; the
+        # implicit default reconstructs the exact coefficients TrainerConfig
+        # already carried, so omitting this parameter reproduces prior
+        # behavior byte-for-byte (asserted by test_reward_variants.py).
+        self._reward_components = reward_components or RewardComponentSet(
+            team_coefficient=config.team_coefficient, own_coefficient=config.own_coefficient,
+            time_penalty=config.time_penalty, capture_bonus=config.capture_bonus,
+            regress_multiplier=config.regress_multiplier, distance_scale_m=config.distance_scale_m,
+        )
+        # Requirement 9.10-9.11: an observation-ablation Condition supplies both
+        # together, since a mismatched (dim, factory) pair would silently
+        # corrupt the actor/critic tensor contract rather than fail loudly.
+        self._observation_dim = observation_dim if observation_dim is not None else OBSERVATION_28D_DIM
+        self._observation_adapter_factory: ObservationAdapterFactory = observation_adapter_factory or (
+            lambda network, clip_distance_m, near_radius_m: Observation28DAdapter(
+                network, clip_distance_m=clip_distance_m, near_radius_m=near_radius_m
+            )
+        )
+        # Requirement 10.1-10.3: None preserves the exact prior reset call
+        # (``env.reset(seed=seed)``); only a placement-ablation Condition asks
+        # for a curriculum-drawn initial placement instead.
+        self._placement_config = placement_config
+        # Requirement 10.4-10.5: None (or u_turn_suppression=False) means every
+        # per-officer logit bias computed in _rollout is the zero vector, which
+        # ResearchMaskedMAPPO.sample's logit_bias=None path already treats as a
+        # complete no-op -- this reproduces prior behavior exactly.
+        self._stabilization_condition = stabilization_condition
+        critic_dim = self._observation_dim * POLICE_COUNT
         torch.manual_seed(self.training_seed)
         self.policy = policy or ResearchMaskedMAPPO(
-            actor_obs_dim=OBSERVATION_28D_DIM,
+            actor_obs_dim=self._observation_dim,
             critic_context_dim=critic_dim,
             action_dim=6,
             num_officers=POLICE_COUNT,
@@ -191,7 +234,7 @@ class ResearchTrainer:
             entropy_coefficient=config.entropy_coefficient,
             device="cpu",
         )
-        if self.policy.actor_obs_dim != OBSERVATION_28D_DIM or self.policy.critic_context_dim != critic_dim:
+        if self.policy.actor_obs_dim != self._observation_dim or self.policy.critic_context_dim != critic_dim:
             raise ResearchValidationError("TRAINER_POLICY_CONTRACT_MISMATCH", "policy dimensions do not match trainer observation/context contract")
         self._training_rng = torch.Generator(device="cpu").manual_seed(self.training_seed)
         self.episode_index = 0
@@ -220,7 +263,7 @@ class ResearchTrainer:
             raise ResearchValidationError("RUN_DIRECTORY_EXISTS", "run directory identities are immutable and cannot be reused", actual=str(self.run_directory))
 
     @staticmethod
-    def _actor_observations(adapter: Observation28DAdapter, state, max_steps: int) -> tuple[np.ndarray, ...]:
+    def _actor_observations(adapter: Any, state, max_steps: int) -> tuple[np.ndarray, ...]:
         return tuple(
             adapter.observe(
                 police_index=index,
@@ -246,24 +289,41 @@ class ResearchTrainer:
         fugitive_after = placement_position(network, after.fugitive)
         old_distances = tuple(math.dist(position, fugitive_before) for position in self._positions(network, before))
         new_distances = tuple(math.dist(position, fugitive_after) for position in self._positions(network, after))
-        team_term = (min(old_distances) - min(new_distances)) / self.config.distance_scale_m
-        rewards = []
-        for old, new in zip(old_distances, new_distances):
-            delta = (old - new) / self.config.distance_scale_m
-            own = self.config.own_coefficient * (delta if delta >= 0.0 else self.config.regress_multiplier * delta)
-            reward = self.config.team_coefficient * team_term + own - self.config.time_penalty
-            if captured:
-                reward += self.config.capture_bonus
-            rewards.append(reward)
-        return tuple(rewards)
+        return total_rewards(self._reward_components, old_distances, new_distances, captured=captured)
+
+    def _candidate_end_intersection_ids(
+        self, network: ModelNetwork, decision_intersection: int, incoming_heading: float | None,
+    ) -> tuple[int, ...]:
+        """Per-action-slot destination intersection, for the u-turn reversal predicate.
+
+        Movement slots map to their segment's end intersection. Unused
+        movement slots and STAY get a sentinel (``-1``, never a real
+        intersection id): unused slots are already masked out of selection,
+        and STAY does not move anywhere, so neither can meaningfully "lead
+        back" to a previously departed intersection.
+        """
+        _, ordered_segment_ids = build_action_mask(network, decision_intersection, incoming_heading)
+        segment_end = {segment.id: int(segment.end_id) for segment in network.segments}
+        ends = [segment_end[segment_id] for segment_id in ordered_segment_ids]
+        while len(ends) < self.policy.action_dim:
+            ends.append(-1)
+        return tuple(ends)
+
+    def _reset_episode(self, env: OSMRoadPursuitEnv, network: ModelNetwork, *, seed: int) -> None:
+        if self._placement_config is None:
+            env.reset(seed=seed)
+            return
+        # Each episode draws its own placement, deterministically from ``seed``,
+        # so two runs of the same (condition, seed, episode) still reproduce
+        # identical initial states under a placement-ablation Condition.
+        draw = generate_placement(network, _dataclass_replace(self._placement_config, placement_seed=seed))
+        env.reset(seed=seed, options={"police": list(draw.police), "fugitive": draw.fugitive})
 
     def _rollout(self, network: ModelNetwork, *, seed: int, generator: torch.Generator) -> EpisodeRollout:
         env = OSMRoadPursuitEnv(network, self.episode_config)
-        env.reset(seed=seed)
-        adapter = Observation28DAdapter(
-            network,
-            clip_distance_m=self.config.clip_distance_m,
-            near_radius_m=self.config.near_radius_m,
+        self._reset_episode(env, network, seed=seed)
+        adapter = self._observation_adapter_factory(
+            network, self.config.clip_distance_m, self.config.near_radius_m,
         )
         graph = _Graph(network)
         evader = GoalEvader(
@@ -280,6 +340,10 @@ class ResearchTrainer:
             action_count=self.policy.action_dim,
         )
         legal_records: list[tuple[bytes, int]] = []
+        # Requirement 10.5: which intersection each officer's *previous*
+        # decision was made at, so a reversal can be detected on its next one.
+        # Local to this episode -- a fresh rollout starts with no history.
+        previous_intersection_ids: dict[int, int | None] = {}
         first_epoch = True
         while env.outcome is None:
             state = env.episode_state()
@@ -294,9 +358,20 @@ class ResearchTrainer:
             epochs: dict[int, DecisionEpoch] = {}
             for officer_id in decision_ids:
                 mask = self.policy.seal_mask(masks[f"police_{officer_id}"])
+                logit_bias = None
+                current_intersection = decision_intersection_id(network, state.police[officer_id])
+                if self._stabilization_condition is not None and self._stabilization_condition.u_turn_suppression:
+                    incoming_heading = state.incoming_headings.get(f"police_{officer_id}")
+                    candidate_ends = self._candidate_end_intersection_ids(network, current_intersection, incoming_heading)
+                    penalties = u_turn_penalties(
+                        self._stabilization_condition, candidate_ends,
+                        previous_intersection_id=previous_intersection_ids.get(officer_id),
+                    )
+                    logit_bias = torch.tensor(penalties, dtype=torch.float32)
+                previous_intersection_ids[officer_id] = current_intersection
                 sample = self.policy.sample(
                     torch.from_numpy(observations[officer_id]), mask, generator,
-                    officer_id=officer_id,
+                    officer_id=officer_id, logit_bias=logit_bias,
                 )
                 epochs[officer_id] = DecisionEpoch.create(
                     actor_obs=observations[officer_id],
@@ -440,7 +515,7 @@ class ResearchTrainer:
             all_actions_legal=legal,
         )
 
-    def train(self) -> TrainingResult:
+    def train(self, *, progress_callback: Callable[[UpdateRecord], None] | None = None) -> TrainingResult:
         self.run_directory.mkdir(parents=True, exist_ok=False)
         manifest_path = self.run_directory / "manifest.json"
         checkpoint_path = self.run_directory / "best_validation.pt"
@@ -466,7 +541,15 @@ class ResearchTrainer:
         for update_index in range(1, self.config.updates + 1):
             outcome = self.execute_update(update_index)
             legal = legal and outcome.all_actions_legal
-            selected = outcome.validation_capture_rate > best_validation
+            # Ties count as an improvement (>=, not >): validation_capture_rate
+            # is a single-episode 0/1 score by default, so once a run first
+            # reaches the ceiling every later update ties it forever. Treating
+            # a tie as "not better" would freeze the saved checkpoint at
+            # whichever update first got lucky -- often within the first few
+            # updates -- discarding everything the rest of training does.
+            # Preferring the most recent tie keeps the checkpoint moving
+            # forward with training instead of pinning it near initialization.
+            selected = outcome.validation_capture_rate >= best_validation
             if selected:
                 best_validation = outcome.validation_capture_rate
                 self._save_checkpoint(
@@ -480,6 +563,8 @@ class ResearchTrainer:
                 selected_checkpoint=selected,
                 losses=outcome.losses,
             ))
+            if progress_callback is not None:
+                progress_callback(history[-1])
         if not checkpoint_path.is_file():
             raise ResearchValidationError("MISSING_VALIDATION_CHECKPOINT", "validation selection produced no checkpoint")
         sealed_manifest = dict(base_manifest)

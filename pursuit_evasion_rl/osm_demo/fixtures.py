@@ -164,6 +164,48 @@ def daejeon() -> RawOSMGraph:
     return RawOSMGraph(nodes=nodes, edges=tuple(edges))
 
 
+def _grid_city(rows: int, cols: int, *, spacing: float, offset: tuple[float, float]) -> RawOSMGraph:
+    """A two-way grid of the given shape, offset in space from every other grid fixture.
+
+    Shared by :func:`busan` and :func:`seoul`: neither is real OSM data.  Both
+    are synthetic stand-ins for Task 12.4's "at least two target-city
+    snapshots" requirement, sized and shaped like :func:`daejeon` (enough
+    distinct drivable intersections for six officers plus one fugitive) but
+    genuinely topologically and spatially distinct from it and from each
+    other, so a cross-city zero-shot run is evaluating a real change of map
+    rather than replaying the training city under a new label.
+    """
+    positions: dict[str, tuple[float, float]] = {}
+    for row in range(rows):
+        for col in range(cols):
+            positions[f"n{row}{col}"] = (offset[0] + col * spacing, offset[1] + row * spacing)
+    nodes = tuple(_node(source_id, *position) for source_id, position in positions.items())
+
+    edges: list[RawEdge] = []
+    for row in range(rows):
+        for col in range(cols):
+            here = f"n{row}{col}"
+            if col + 1 < cols:
+                right = f"n{row}{col + 1}"
+                edges.append(_edge(here, right, f"h-{here}-{right}", positions, oneway=False, road_class="secondary"))
+                edges.append(_edge(right, here, f"h-{right}-{here}", positions, oneway=False, road_class="secondary"))
+            if row + 1 < rows:
+                down = f"n{row + 1}{col}"
+                edges.append(_edge(here, down, f"v-{here}-{down}", positions, oneway=False, road_class="secondary"))
+                edges.append(_edge(down, here, f"v-{down}-{here}", positions, oneway=False, road_class="secondary"))
+    return RawOSMGraph(nodes=nodes, edges=tuple(edges))
+
+
+def busan() -> RawOSMGraph:
+    """A synthetic cross-city stand-in: a 4x3 grid, spatially and topologically distinct from daejeon."""
+    return _grid_city(4, 3, spacing=120.0, offset=(5000.0, 0.0))
+
+
+def seoul() -> RawOSMGraph:
+    """A synthetic cross-city stand-in: a 3x4 grid, spatially and topologically distinct from daejeon and busan."""
+    return _grid_city(3, 4, spacing=90.0, offset=(0.0, 5000.0))
+
+
 # ---------------------------------------------------------------------------
 # Registry, committed identity hashes and reusable sources
 # ---------------------------------------------------------------------------
@@ -176,6 +218,8 @@ OFFLINE_FIXTURES: Mapping[str, Callable[[], RawOSMGraph]] = MappingProxyType(
         "degree_six": degree_six,
         "boundary_crossing": boundary_crossing,
         "daejeon": daejeon,
+        "busan": busan,
+        "seoul": seoul,
     }
 )
 
@@ -189,6 +233,8 @@ FIXTURE_RAW_HASHES: Mapping[str, str] = MappingProxyType(
         "degree_six": "94d560b18cf4a91bd75af3f4c7a75e487c8fc1ee2b9b7e53b849af543703c2df",
         "boundary_crossing": "ddc243105e2557dbff2e6a353969b01026187fc3656098851b7eed616fd58d8e",
         "daejeon": "457901044ab8c4d9c405097c2e8301c758c8610b17db92553a07c055470dabb4",
+        "busan": "80d832b1d9e2b192515185ec1ec75e1ad1854115b5a219844bf2236345f90afb",
+        "seoul": "6192e8d536e040afe3165cc9991b8597ebd5929ec8cfac3aee88595817a076d8",
     }
 )
 
