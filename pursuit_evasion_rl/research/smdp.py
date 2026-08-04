@@ -72,6 +72,11 @@ class DecisionEpoch:
     stored_mask_bytes: bytes
     old_log_prob: float
     critic_context: tuple[float, ...]
+    # Sampling-time additive logit bias (e.g. the stabilization u-turn
+    # penalty).  ``None`` means the rollout sampled from raw logits; storing
+    # the vector lets the PPO recomputation reproduce the exact behavior
+    # distribution instead of silently dropping the bias.
+    logit_bias: tuple[float, ...] | None = None
     stored_mask_hash: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -94,6 +99,14 @@ class DecisionEpoch:
         object.__setattr__(self, "critic_context", critic_context)
         object.__setattr__(self, "stored_mask_bytes", mask)
         object.__setattr__(self, "old_log_prob", _finite(self.old_log_prob, "old_log_prob"))
+        if self.logit_bias is not None:
+            bias = tuple(_finite(value, "logit_bias") for value in self.logit_bias)
+            if len(bias) != len(mask):
+                raise ResearchValidationError(
+                    "INVALID_LOGIT_BIAS", "logit_bias length must match the action mask",
+                    expected=len(mask), actual=len(bias),
+                )
+            object.__setattr__(self, "logit_bias", bias)
         object.__setattr__(self, "stored_mask_hash", hashlib.sha256(mask).hexdigest())
 
     @classmethod
@@ -105,8 +118,12 @@ class DecisionEpoch:
         action_mask: Sequence[bool] | bytes,
         old_log_prob: float,
         critic_context: Iterable[float],
+        logit_bias: Iterable[float] | None = None,
     ) -> "DecisionEpoch":
-        return cls(tuple(actor_obs), action, encode_action_mask(action_mask), old_log_prob, tuple(critic_context))
+        return cls(
+            tuple(actor_obs), action, encode_action_mask(action_mask), old_log_prob,
+            tuple(critic_context), None if logit_bias is None else tuple(logit_bias),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +142,9 @@ class DecisionTransition:
     critic_context: tuple[float, ...]
     next_critic_context: tuple[float, ...]
     terminal: bool
+    # Carried from the DecisionEpoch so the PPO update can re-apply the exact
+    # sampling-time bias (None = sampled from raw logits, the audited default).
+    logit_bias: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         if not 0 <= self.officer_id < OFFICER_COUNT:
@@ -314,9 +334,19 @@ class AsyncDecisionTransitionBuffer:
         self._pending[:] = replacements
 
     def close_terminal(
-        self, next_critic_contexts: Mapping[int, Iterable[float]] | Sequence[Iterable[float]]
+        self,
+        next_critic_contexts: Mapping[int, Iterable[float]] | Sequence[Iterable[float]],
+        *,
+        terminal: bool = True,
     ) -> tuple[DecisionTransition, ...]:
-        """Atomically close exactly six pending transitions at episode termination."""
+        """Atomically close exactly six pending transitions at episode end.
+
+        ``terminal=True`` (the default, prior behavior) drops the bootstrap:
+        correct for absorbing outcomes (capture/escape).  ``terminal=False``
+        marks a time-limit truncation, keeping the ``gamma**tau * V(s_T)``
+        bootstrap so the critic does not learn that late-episode states are
+        worth only their accumulated penalties.
+        """
         if any(item is None for item in self._pending):
             raise ResearchValidationError(
                 "INCOMPLETE_TERMINAL_CLOSURE", "terminal closure requires all six pending transitions",
@@ -338,7 +368,7 @@ class AsyncDecisionTransitionBuffer:
         if self._critic_context_dim is not None and any(len(value) != self._critic_context_dim for value in contexts):
             raise ResearchValidationError("SMDP_DIMENSION_MISMATCH", "terminal critic context dimension changed")
         transitions = tuple(
-            self._close(self._pending[index], contexts[index], terminal=True)  # type: ignore[arg-type]
+            self._close(self._pending[index], contexts[index], terminal=terminal)  # type: ignore[arg-type]
             for index in range(OFFICER_COUNT)
         )
         self._pending[:] = [None] * OFFICER_COUNT
@@ -361,6 +391,7 @@ class AsyncDecisionTransitionBuffer:
             critic_context=pending.epoch.critic_context,
             next_critic_context=next_context,
             terminal=terminal,
+            logit_bias=pending.epoch.logit_bias,
         )
 
     def drain_completed(self) -> tuple[DecisionTransition, ...]:

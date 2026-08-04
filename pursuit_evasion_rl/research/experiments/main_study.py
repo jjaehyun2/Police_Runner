@@ -212,6 +212,11 @@ class MainStudyConditionSpec:
     observation_dim: int | None = None
     observation_adapter_factory: object | None = None
     stabilization_condition: object | None = None
+    # Remediation axes (2026-08-05): defaults reproduce the trainer's audited
+    # prior behavior exactly (see ResearchTrainer.__init__).
+    step_reward_fn: object | None = None
+    timeout_bootstrap: bool = False
+    arrival_decisions: bool = False
     # Defaults to the synthetic-fixture label every prior caller relied on;
     # callers backing conditions with a real ActualOSMSpec network must pass
     # DataKind.ACTUAL_OSM_MAP explicitly so episode provenance stays truthful.
@@ -308,6 +313,8 @@ def train_and_evaluate_seed(
             reward_components=spec.reward_components, observation_dim=spec.observation_dim,
             observation_adapter_factory=spec.observation_adapter_factory,
             placement_config=spec.placement_config, stabilization_condition=spec.stabilization_condition,
+            step_reward_fn=spec.step_reward_fn, timeout_bootstrap=spec.timeout_bootstrap,
+            arrival_decisions=spec.arrival_decisions,
         )
         result: TrainingResult = trainer.train(progress_callback=progress_callback)
         selected = load_frozen_policy(result.checkpoint_path, policy_id=f"{spec.condition_id}-seed{seed}")

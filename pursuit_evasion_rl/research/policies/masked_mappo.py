@@ -264,6 +264,13 @@ class MaskedMAPPOBatch:
     stored_masks: tuple[StoredActionMask, ...]
     sampling_mask_bytes: tuple[bytes, ...]
     sampling_mask_hashes: tuple[str, ...]
+    # Optional [batch, action_dim] additive logit biases replayed from the
+    # rollout (stabilization u-turn penalties).  ``None`` (the default)
+    # reproduces prior behavior exactly; when present, the PPO recomputation
+    # applies the same bias the sampling distribution used, so old/new
+    # log-probs describe the same policy family (fixes the dropped-bias
+    # importance-ratio mismatch in the u-turn suppression arm).
+    logit_biases: Tensor | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -473,6 +480,15 @@ class ResearchMaskedMAPPO:
         actor_obs, officer_ids, actions, _, _, _, critic_context = prepared
         logits = self.actor(actor_obs, officer_ids)
         _require_finite("actor_logits", logits)
+        if batch.logit_biases is not None:
+            biases = batch.logit_biases
+            if not isinstance(biases, Tensor) or biases.shape != logits.shape:
+                _fail(
+                    "MALFORMED_LOGIT_BIAS", "batch logit_biases must match [batch, action_dim]",
+                    expected=tuple(logits.shape), actual=tuple(getattr(biases, "shape", ())),
+                )
+            _require_finite("logit_biases", biases)
+            logits = logits + biases.to(device=logits.device, dtype=logits.dtype)
         distribution = self.masked_categorical.create(logits, batch.stored_masks)
         if distribution.support_bytes != batch.sampling_mask_bytes or distribution.support_hashes != batch.sampling_mask_hashes:
             _fail("OLD_NEW_SUPPORT_DRIFT", "PPO recomputation support differs from rollout sampling support")
