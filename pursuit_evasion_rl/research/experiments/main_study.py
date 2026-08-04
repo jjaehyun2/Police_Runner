@@ -42,11 +42,11 @@ from typing import Any, Callable, Sequence
 
 import torch
 
-from pursuit_evasion_rl.osm_demo.models import EpisodeConfig, EpisodeOutcome, ModelNetwork
+from pursuit_evasion_rl.osm_demo.models import EpisodeConfig, ModelNetwork
 
 from ..budget import SampleSizePlan, SampleSizeStatus
 from ..canonical import content_hash
-from ..domain import DataKind, ExecutionStatus, MapScenario
+from ..domain import DataKind, EpisodeOutcome, ExecutionStatus, MapScenario
 from ..errors import ResearchValidationError
 from ..evaluation.paired import (
     EpisodeCase,

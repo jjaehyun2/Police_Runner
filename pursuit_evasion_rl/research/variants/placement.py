@@ -288,7 +288,14 @@ def generate_placement(
 
     graph = _Graph(network)
     distances = graph.dist_from(fugitive_id)
-    global_pool = [item.id for item in drivable if item.id != fugitive_id]
+    # An officer needs at least one outgoing segment to ever move again after
+    # its first decision; without this filter an officer could be drawn onto
+    # a pure sink intersection (incoming_segment_ids only, e.g. a bbox-edge
+    # dead end) and sit there for the rest of the episode no matter how good
+    # the policy is -- indistinguishable from a trained "give up" decision.
+    global_pool = [
+        item.id for item in drivable if item.id != fugitive_id and item.outgoing_segment_ids
+    ]
     ring_pool = [
         identity
         for identity in global_pool

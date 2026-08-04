@@ -216,6 +216,26 @@ def test_a_real_seed_trains_and_paired_evaluates_against_a_frozen_baseline(tmp_p
     assert manifest.is_sealed and manifest.run.execution_status is ExecutionStatus.COMPLETED
 
 
+def test_main_study_episode_outcome_is_the_same_class_replay_episode_returns() -> None:
+    """Regression: replay_episode() (research/evaluation/paired.py) returns
+    research.domain.EpisodeOutcome, a *different* Enum class from
+    osm_demo.models.EpisodeOutcome despite identical member names/values.
+    train_and_evaluate_seed's outcome_a/outcome_b compare a replay's .outcome
+    against this module's EpisodeOutcome with `is`; importing the osm_demo one
+    here made that comparison silently always False for every real replay,
+    driving every seed's final 500-episode paired evaluation to a fabricated
+    0% capture rate for both the proposed policy and the baseline. Import
+    identity is the actual contract `is` depends on, so that is what this
+    pins -- not just the two enums' shared member names/values.
+    """
+    from pursuit_evasion_rl.research import domain
+    from pursuit_evasion_rl.research.evaluation import paired
+    from pursuit_evasion_rl.research.experiments import main_study
+
+    assert main_study.EpisodeOutcome is domain.EpisodeOutcome
+    assert paired.EpisodeOutcome is domain.EpisodeOutcome
+
+
 def test_run_main_study_produces_a_conserved_ledger_and_real_paired_statistics(tmp_path: Path) -> None:
     sealed, resource = _sealed_protocol(tmp_path)
     token = require_main_study_admission(quality_attestation=_clean_attestation(), protocol=sealed, pilot_report=_completed_pilot_report())
