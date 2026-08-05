@@ -11,6 +11,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from collections import deque
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -103,6 +104,25 @@ def _flatten_observation(observation: dict) -> np.ndarray:
         arr = np.asarray(observation[key], dtype=np.float32).flatten()
         parts.append(arr)
     return np.concatenate(parts)
+
+
+# 무효 행동 logit 값. -inf 대신 큰 음수를 쓰면 마스크가 전부 False인
+# 행에서도 NaN 없이 균등 분포로 떨어진다.
+_MASK_FILL_VALUE = -1e9
+
+
+def _apply_action_mask(logits: torch.Tensor, mask: np.ndarray) -> torch.Tensor:
+    """무효 행동의 logit을 큰 음수로 채운다.
+
+    Args:
+        logits: (batch, action_dim) 로짓 텐서
+        mask: (batch, action_dim) boolean 마스크. True가 유효 행동.
+
+    Returns:
+        마스크가 적용된 로짓 텐서
+    """
+    mask_tensor = torch.as_tensor(np.asarray(mask, dtype=bool), device=logits.device)
+    return logits.masked_fill(~mask_tensor, _MASK_FILL_VALUE)
 
 
 def _get_obs_dim(num_police: int, max_degree: int) -> int:
@@ -198,10 +218,10 @@ class MAPPOAlgorithm(BaseAlgorithm):
         with torch.no_grad():
             logits = actor(obs_tensor)
 
-            # 행동 마스크 적용: 무효 행동의 logit을 -inf로 설정
+            # 행동 마스크 적용: 무효 행동의 logit을 큰 음수로 설정
+            # (get_log_prob / _ppo_update의 재계산 경로와 동일한 방식)
             if action_mask is not None:
-                mask_tensor = torch.BoolTensor(action_mask).unsqueeze(0)
-                logits = logits.masked_fill(~mask_tensor, float("-inf"))
+                logits = _apply_action_mask(logits, np.asarray(action_mask)[None, :])
 
             dist = Categorical(logits=logits)
             action = dist.sample()
@@ -217,10 +237,16 @@ class MAPPOAlgorithm(BaseAlgorithm):
                 - police_actions: list[int] 경찰 행동
                 - police_rewards: list[float] 경찰 보상
                 - police_old_log_probs: list[float] 이전 로그 확률
+                - police_dones: list[bool] (선택) 궤적 경계. 여러 경찰/에피소드의
+                  경험을 이어붙였다면 각 궤적의 마지막 인덱스를 True로 준다.
+                  없으면 전체를 하나의 궤적으로 취급한다.
+                - police_masks: list[np.ndarray] (선택) 샘플링에 쓴 행동 마스크
                 - fugitive_obs: list[np.ndarray] 도망자 관측값
                 - fugitive_actions: list[int] 도망자 행동
                 - fugitive_rewards: list[float] 도망자 보상
                 - fugitive_old_log_probs: list[float] 이전 로그 확률
+                - fugitive_dones: list[bool] (선택) 궤적 경계
+                - fugitive_masks: list[np.ndarray] (선택) 행동 마스크
 
         Returns:
             학습 메트릭 딕셔너리
@@ -236,6 +262,8 @@ class MAPPOAlgorithm(BaseAlgorithm):
             actions_list=batch.get("police_actions", []),
             rewards_list=batch.get("police_rewards", []),
             old_log_probs_list=batch.get("police_old_log_probs", []),
+            dones_list=batch.get("police_dones"),
+            masks_list=batch.get("police_masks"),
         )
         metrics["police_policy_loss"] = police_loss["policy_loss"]
         metrics["police_value_loss"] = police_loss["value_loss"]
@@ -249,6 +277,8 @@ class MAPPOAlgorithm(BaseAlgorithm):
             actions_list=batch.get("fugitive_actions", []),
             rewards_list=batch.get("fugitive_rewards", []),
             old_log_probs_list=batch.get("fugitive_old_log_probs", []),
+            dones_list=batch.get("fugitive_dones"),
+            masks_list=batch.get("fugitive_masks"),
         )
         metrics["fugitive_policy_loss"] = fugitive_loss["policy_loss"]
         metrics["fugitive_value_loss"] = fugitive_loss["value_loss"]
@@ -264,8 +294,17 @@ class MAPPOAlgorithm(BaseAlgorithm):
         actions_list: list[int],
         rewards_list: list[float],
         old_log_probs_list: list[float],
+        dones_list: Sequence[bool] | None = None,
+        masks_list: Sequence[np.ndarray] | None = None,
     ) -> dict[str, float]:
-        """PPO 클리핑 업데이트를 수행한다."""
+        """PPO 클리핑 업데이트를 수행한다.
+
+        Args:
+            dones_list: 궤적 경계 (각 궤적 마지막 인덱스가 True). None이면
+                전체를 하나의 궤적으로 본다.
+            masks_list: 샘플링 시 사용한 행동 마스크. 주어지면 로그 확률을
+                동일한 마스크 분포에서 재계산한다 (ratio 편향 제거).
+        """
         if not obs_list:
             return {"policy_loss": 0.0, "value_loss": 0.0}
 
@@ -274,7 +313,7 @@ class MAPPOAlgorithm(BaseAlgorithm):
         old_log_probs_tensor = torch.FloatTensor(old_log_probs_list)
 
         # 할인 누적 보상 (returns) 계산
-        returns = self._compute_returns(rewards_list)
+        returns = self._compute_returns(rewards_list, dones_list)
         returns_tensor = torch.FloatTensor(returns)
 
         # 가치 추정
@@ -285,8 +324,10 @@ class MAPPOAlgorithm(BaseAlgorithm):
         if advantages.numel() > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # 새 로그 확률 계산
+        # 새 로그 확률 계산 (샘플링과 동일한 마스크 분포에서)
         logits = actor(obs_tensor)
+        if masks_list is not None and len(masks_list) > 0:
+            logits = _apply_action_mask(logits, np.asarray(masks_list))
         dist = Categorical(logits=logits)
         new_log_probs = dist.log_prob(actions_tensor)
 
@@ -316,17 +357,48 @@ class MAPPOAlgorithm(BaseAlgorithm):
             "value_loss": value_loss.item(),
         }
 
-    def _compute_returns(self, rewards: list[float]) -> list[float]:
-        """할인 누적 보상을 계산한다."""
-        returns: list[float] = []
+    def _compute_returns(
+        self, rewards: list[float], dones: Sequence[bool] | None = None
+    ) -> list[float]:
+        """할인 누적 보상을 계산한다.
+
+        Args:
+            rewards: 보상 시퀀스. 여러 궤적을 이어붙인 것일 수 있다.
+            dones: 각 인덱스가 궤적의 마지막 스텝인지 여부. 주어지면
+                dones[i]가 True인 지점에서 누적값을 끊어, 서로 다른
+                에이전트/에피소드 사이로 할인이 새지 않게 한다.
+                None이면 전체를 하나의 궤적으로 취급한다 (기존 동작).
+
+        Returns:
+            인덱스별 할인 누적 보상
+        """
+        n = len(rewards)
+        returns: list[float] = [0.0] * n
         g = 0.0
-        for r in reversed(rewards):
-            g = r + self.gamma * g
-            returns.insert(0, g)
+        for i in range(n - 1, -1, -1):
+            # 궤적 경계: 다음(i+1) 스텝의 값을 끌고 오지 않는다.
+            if dones is not None and i < len(dones) and dones[i]:
+                g = 0.0
+            g = rewards[i] + self.gamma * g
+            returns[i] = g
         return returns
 
-    def get_log_prob(self, agent_id: str, observation: dict, action: int) -> float:
-        """특정 행동의 로그 확률을 반환한다."""
+    def get_log_prob(
+        self,
+        agent_id: str,
+        observation: dict,
+        action: int,
+        action_mask: np.ndarray | None = None,
+    ) -> float:
+        """특정 행동의 로그 확률을 반환한다.
+
+        Args:
+            agent_id: 에이전트 식별자
+            observation: 관측값 딕셔너리
+            action: 로그 확률을 구할 행동
+            action_mask: 유효 행동 마스크. get_action()의 샘플링 분포와
+                동일하게 맞추려면 샘플링에 쓴 마스크를 그대로 넘겨야 한다.
+        """
         obs_flat = _flatten_observation(observation)
         obs_tensor = torch.FloatTensor(obs_flat).unsqueeze(0)
 
@@ -337,6 +409,8 @@ class MAPPOAlgorithm(BaseAlgorithm):
 
         with torch.no_grad():
             logits = actor(obs_tensor)
+            if action_mask is not None:
+                logits = _apply_action_mask(logits, np.asarray(action_mask)[None, :])
             dist = Categorical(logits=logits)
             log_prob = dist.log_prob(torch.tensor(action))
 

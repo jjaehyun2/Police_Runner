@@ -97,7 +97,12 @@ for ep in range(1, MAX_EPISODES + 1):
     obs, _ = env.reset(seed=ep)
 
     # 경찰 경험만 수집 (도주자는 학습 안 함)
-    police_obs, police_actions, police_rewards, police_log_probs = [], [], [], []
+    # 경찰별로 따로 모은다: 한 리스트에 6대를 번갈아 넣으면 할인 계산이
+    # 에이전트 경계를 넘어가 실효 감가율이 gamma^6이 되어버린다.
+    police_traj = {
+        pid: {"obs": [], "actions": [], "rewards": [], "log_probs": [], "masks": []}
+        for pid in env.police_ids
+    }
 
     done = False
     step_count = 0
@@ -113,10 +118,11 @@ for ep in range(1, MAX_EPISODES + 1):
             actions[pid] = action
 
             obs_flat = _flatten_observation(obs[pid])
-            log_prob = algo.get_log_prob(pid, obs[pid], action)
-            police_obs.append(obs_flat)
-            police_actions.append(action)
-            police_log_probs.append(log_prob)
+            log_prob = algo.get_log_prob(pid, obs[pid], action, action_mask=mask)
+            police_traj[pid]["obs"].append(obs_flat)
+            police_traj[pid]["actions"].append(action)
+            police_traj[pid]["log_probs"].append(log_prob)
+            police_traj[pid]["masks"].append(mask)
 
         # 도주자: 휴리스틱 (시야 제한)
         fugitive_state = env._vehicle_states[env.fugitive_id]
@@ -130,11 +136,27 @@ for ep in range(1, MAX_EPISODES + 1):
 
         # 경찰 보상만 기록
         for pid in env.police_ids:
-            police_rewards.append(rewards.get(pid, 0.0))
+            police_traj[pid]["rewards"].append(rewards.get(pid, 0.0))
 
         step_count += 1
         any_agent = next(iter(terminated))
         done = terminated[any_agent] or truncated[any_agent]
+
+    # 경찰별 궤적을 이어붙이되, 각 궤적의 마지막 스텝을 done으로 표시해
+    # 할인 누적이 다른 경찰의 궤적으로 새지 않게 한다.
+    police_obs, police_actions, police_rewards = [], [], []
+    police_log_probs, police_masks, police_dones = [], [], []
+    for pid in env.police_ids:
+        traj = police_traj[pid]
+        n = len(traj["obs"])
+        if n == 0:
+            continue
+        police_obs.extend(traj["obs"])
+        police_actions.extend(traj["actions"])
+        police_rewards.extend(traj["rewards"])
+        police_log_probs.extend(traj["log_probs"])
+        police_masks.extend(traj["masks"])
+        police_dones.extend([False] * (n - 1) + [True])
 
     # 경찰만 학습 업데이트
     if police_obs:
@@ -143,6 +165,12 @@ for ep in range(1, MAX_EPISODES + 1):
             "police_actions": police_actions,
             "police_rewards": police_rewards,
             "police_old_log_probs": police_log_probs,
+            "police_dones": police_dones,
+            "police_masks": (
+                np.asarray(police_masks, dtype=bool)
+                if all(m is not None for m in police_masks)
+                else None
+            ),
             "fugitive_obs": [],
             "fugitive_actions": [],
             "fugitive_rewards": [],

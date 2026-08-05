@@ -114,6 +114,7 @@ class RoadPursuitEnv(gymnasium.Env):
                 "terminal_reward": config.get("terminal_reward", 1.0),
                 "shaping_scale": config.get("shaping_scale", 0.1),
                 "cooperation_bonus": config.get("cooperation_bonus", 0.05),
+                "time_penalty": config.get("time_penalty", -0.01),
                 "capture_radius": self._capture_radius,
             },
         )
@@ -137,6 +138,12 @@ class RoadPursuitEnv(gymnasium.Env):
         self._done: bool = False
         self._rng: np.random.Generator | None = None
 
+        # 종료 후 step() 재호출 대비: 마지막 관측/종료 상태를 보관한다.
+        self._last_observations: dict[str, dict[str, np.ndarray]] | None = None
+        self._last_terminated: bool = False
+        self._last_truncated: bool = False
+        self._last_termination_result: str | None = None
+
     def reset(
         self, seed: int | None = None, options: dict | None = None
     ) -> tuple[dict, dict]:
@@ -154,6 +161,12 @@ class RoadPursuitEnv(gymnasium.Env):
 
         self._current_step = 0
         self._done = False
+        self._last_terminated = False
+        self._last_truncated = False
+        self._last_termination_result = None
+
+        # 에피소드 단위 보상 상태 초기화 (협력 보너스 1회 지급 플래그 등)
+        self._reward_calculator.reset()
 
         # 도메인 랜덤화 적용
         self._apply_domain_randomization()
@@ -163,6 +176,7 @@ class RoadPursuitEnv(gymnasium.Env):
 
         # 관측값 생성
         observations = self._build_observations()
+        self._last_observations = observations
         info = {agent_id: {} for agent_id in self._agent_ids}
 
         return observations, info
@@ -185,6 +199,23 @@ class RoadPursuitEnv(gymnasium.Env):
         """
         if self._vehicle_states is None:
             raise RuntimeError("step() 전에 reset()을 호출하세요.")
+
+        # 0. 종료 후 재호출 가드: 아무것도 진행하지 않고 보상 0을 반환한다.
+        #    (가드가 없으면 종료 보상이 호출할 때마다 다시 지급된다.)
+        if self._done:
+            observations = (
+                self._last_observations
+                if self._last_observations is not None
+                else self._build_observations()
+            )
+            rewards = {aid: 0.0 for aid in self._agent_ids}
+            terminated = {aid: self._last_terminated for aid in self._agent_ids}
+            truncated = {aid: self._last_truncated for aid in self._agent_ids}
+            info = {
+                aid: {"termination_reason": self._last_termination_result}
+                for aid in self._agent_ids
+            }
+            return observations, rewards, terminated, truncated, info
 
         # 이전 상태 저장
         prev_states = dict(self._vehicle_states)
@@ -232,6 +263,12 @@ class RoadPursuitEnv(gymnasium.Env):
         # 6. 관측값 생성
         observations = self._build_observations()
 
+        # 종료 후 재호출 시 그대로 되돌려주기 위해 보관
+        self._last_observations = observations
+        self._last_terminated = terminated_flag
+        self._last_truncated = truncated_flag
+        self._last_termination_result = termination_result
+
         terminated = {aid: terminated_flag for aid in self._agent_ids}
         truncated = {aid: truncated_flag for aid in self._agent_ids}
         info = {
@@ -244,8 +281,12 @@ class RoadPursuitEnv(gymnasium.Env):
     def get_action_masks(self) -> dict[str, np.ndarray]:
         """각 에이전트의 행동 마스크를 반환한다.
 
-        - 세그먼트 중간(progress < 1.0): 모든 행동 허용 (어차피 무시됨)
         - 교차로 도달(progress >= 1.0): 유효한 outgoing 인덱스 + stay만 허용
+        - 세그먼트 중간이지만 이번 스텝에 세그먼트 끝에 도착: 도착할 교차로의
+          outgoing 인덱스 + stay 허용 (step()이 전진 후 행동을 적용하므로
+          이번 행동이 실제로 그 교차로에서 사용된다)
+        - 그 외 세그먼트 중간: stay만 허용. 행동이 어차피 무시되는 구간이라
+          모든 행동을 열어두면 정책 경사에 무의미한 랜덤 행동이 섞인다.
 
         Returns:
             에이전트별 행동 마스크 딕셔너리
@@ -261,11 +302,11 @@ class RoadPursuitEnv(gymnasium.Env):
             state = self._vehicle_states[aid]
             mask = np.zeros(action_size, dtype=bool)
 
-            if not state.at_intersection:
-                # 세그먼트 중간: 모든 행동 허용 (무시됨)
-                mask[:] = True
+            if not state.at_intersection and not self._arrives_this_step(state):
+                # 행동이 무시되는 구간: stay만 허용 (결정적 no-op)
+                mask[self._fixed_max_degree] = True
             else:
-                # 교차로: 유효한 outgoing만 허용
+                # 이번 스텝에 행동이 적용될 교차로의 유효한 outgoing만 허용
                 end_inter = state.end_intersection(self.network)
                 outgoing = self.network.get_outgoing_segments(end_inter)
                 for i in range(min(len(outgoing), self._fixed_max_degree)):
@@ -276,6 +317,25 @@ class RoadPursuitEnv(gymnasium.Env):
             masks[aid] = mask
 
         return masks
+
+    def _arrives_this_step(self, state: VehicleState) -> bool:
+        """이번 스텝의 전진으로 세그먼트 끝(교차로)에 도달하는지 판정한다.
+
+        advance_vehicle()과 동일한 식을 사용해야 한다. step()은
+        '전진 → 행동 적용' 순서라서, 이번 스텝에 도착하는 차량의 행동은
+        실제로 그 교차로에서 사용된다.
+
+        Args:
+            state: 현재 차량 상태
+
+        Returns:
+            이번 스텝에 교차로에 도달하면 True
+        """
+        segment = self.network.get_segment(state.segment_id)
+        if segment.length <= 0:
+            return True
+        delta = state.speed * self._dt / segment.length
+        return state.progress + delta >= 1.0
 
     def render(self) -> None:
         """현재 상태의 텍스트 표현을 출력한다."""

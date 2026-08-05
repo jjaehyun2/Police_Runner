@@ -248,56 +248,10 @@ class RoadNetwork2D:
             self._boundary_intersections = sorted(int(k) for k in kept)
 
         # 4. 막다른 길 추가 (내부 교차로 일부에서 outgoing 세그먼트 제거)
+        #    설정된 개수/시드를 그대로 따른다. (예전에는 여기서 하드코딩된
+        #    시드로 거의 같은 로직을 한 번 더 돌려 막다른 길이 최대 2배로
+        #    늘어나고 config seed가 무시되었다.)
         self._add_dead_ends(self._config.get("num_dead_ends", 2), self._config.get("seed", None))
-
-        # 4. 막다른 길 추가 (내부 교차로 1~2개에서 outgoing 세그먼트 일부 제거)
-        internal = [
-            iid for iid in self.intersections
-            if iid not in set(self._boundary_intersections)
-            and len(self.intersections[iid].outgoing_segments) > 1
-        ]
-        if internal:
-            rng2 = np.random.default_rng(rows * cols + 1)
-            num_dead_ends = min(2, len(internal))
-            dead_end_candidates = rng2.choice(internal, size=num_dead_ends, replace=False)
-
-            for dead_iid in dead_end_candidates:
-                inter = self.intersections[dead_iid]
-                # outgoing 세그먼트 중 1~2개 제거 (최소 1개는 남김)
-                if len(inter.outgoing_segments) > 1:
-                    num_remove = min(2, len(inter.outgoing_segments) - 1)
-                    to_remove = rng2.choice(
-                        inter.outgoing_segments, size=num_remove, replace=False
-                    ).tolist()
-                    for sid in to_remove:
-                        seg = self.segments[sid]
-                        # 그래프에서 엣지 제거
-                        if self.graph.has_edge(seg.start_intersection_id, seg.end_intersection_id):
-                            self.graph.remove_edge(seg.start_intersection_id, seg.end_intersection_id)
-                        # outgoing 목록에서 제거
-                        inter.outgoing_segments.remove(sid)
-                        # incoming 목록에서도 제거
-                        end_inter = self.intersections[seg.end_intersection_id]
-                        if sid in end_inter.incoming_segments:
-                            end_inter.incoming_segments.remove(sid)
-                        # 세그먼트 자체는 보존 (ID 참조 깨짐 방지)
-
-    def _reduce_boundary_exits(self, keep_ratio: float, seed: int | None = None) -> None:
-        """경계 교차로 중 일부만 탈출구로 유지한다.
-
-        Args:
-            keep_ratio: 유지할 비율 (0.5 = 절반)
-            seed: 랜덤 시드
-        """
-        if not self._boundary_intersections or keep_ratio >= 1.0:
-            return
-
-        rng = np.random.default_rng(seed)
-        all_boundary = list(self._boundary_intersections)
-        num_keep = max(4, int(len(all_boundary) * keep_ratio))  # 최소 4개, 비율 적용
-
-        kept = list(rng.choice(all_boundary, size=num_keep, replace=False))
-        self._boundary_intersections = sorted(kept)
 
     def _add_dead_ends(self, num_dead_ends: int, seed: int | None = None) -> None:
         """내부 교차로 일부를 막다른 길로 만든다.
