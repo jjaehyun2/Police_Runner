@@ -47,3 +47,7 @@ artifacts/research/runs/
 .omc/sessions/
 .omc/state/checkpoints/
 .omc/state/sessions/
+
+# SUMO generated networks and demo state
+cache/sumo/
+scripts/sumo_demo/out/

@@ -1,0 +1,610 @@
+<title>관제실 · 경찰 추격 통제 콘솔</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg-page: #0a0d10;
+    --bg-panel: #12171d;
+    --bg-raised: #1a212a;
+    --bg-tile: #161c23;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --text-primary: #e7edf2;
+    --text-secondary: #93a1ab;
+    --text-muted: #5a6570;
+
+    --cyan: #34c3ce;   /* 추적/이동 - 활성 신호 */
+    --amber: #e2a33d;  /* 포위중/차단 - 조여드는 상황 */
+    --green: #3fcf7a;  /* 검거 - 종결(성공) */
+    --red: #e5555f;    /* 탈출 - 종결(실패) */
+    --slate: #7c8a96;  /* 대기/시간초과 - 중립 */
+
+    --font-ui: "Pretendard Variable", Pretendard, "Malgun Gothic", -apple-system,
+      BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", "D2Coding", "Consolas", "SFMono-Regular",
+      ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg-page);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    overflow-x: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    border-top: 3px solid var(--slate);
+    transition: border-top-color 0.3s ease;
+  }
+
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 상단 바 ---------- */
+  .topbar {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .brand { font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
+  .brand-mark { color: var(--cyan); margin-right: 6px; }
+  .brand-sub {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.12em;
+    margin-left: 8px;
+  }
+  .fugitive-line {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-left: auto;
+  }
+  .fugitive-line .num { color: var(--text-primary); }
+  .conn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+  }
+  .conn-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--slate);
+  }
+  .conn.live .conn-dot {
+    background: var(--cyan);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .conn.live .conn-dot { animation: none; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(52, 195, 206, 0.5); }
+    50% { opacity: 0.55; box-shadow: 0 0 0 4px rgba(52, 195, 206, 0); }
+  }
+
+  /* ---------- 상황 요약 ---------- */
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tile {
+    background: var(--bg-tile);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .tile-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+  .tile-value {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .tile-sub {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 3px 0;
+  }
+  .badge::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+
+  .state-tracking { color: var(--cyan); }
+  .state-containing { color: var(--amber); }
+  .state-captured { color: var(--green); }
+  .state-escaped { color: var(--red); }
+  .state-timeout, .state-waiting { color: var(--slate); }
+
+  /* 포위 완성률 미터: 20칸 단계형(연속 그라디언트가 아닌 계기형으로 표시) */
+  .meter {
+    display: flex;
+    gap: 2px;
+    height: 12px;
+    align-items: stretch;
+  }
+  .meter-seg {
+    flex: 1;
+    background: var(--bg-raised);
+    border-radius: 1px;
+  }
+  .meter-seg.on { background: var(--meter-color, var(--cyan)); }
+
+  /* ---------- 본문 ---------- */
+  .body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px 20px 16px;
+    min-height: 0;
+  }
+
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .panel h2 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    margin: 0 0 8px;
+    text-transform: none;
+  }
+
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+  }
+  .metrics-panel { flex: 0 0 auto; }
+  .events-panel { flex: 1; min-height: 0; }
+
+  /* ---------- 6대 권고 테이블 ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  tbody td {
+    padding: 8px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tbody tr.nearest { background: rgba(52, 195, 206, 0.07); }
+  tbody tr { border-left: 3px solid transparent; }
+  tbody tr.st-이동 { border-left-color: var(--cyan); }
+  tbody tr.st-차단 { border-left-color: var(--amber); }
+  tbody tr.st-대기 { border-left-color: var(--slate); }
+
+  .officer-id {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    background: var(--bg-raised);
+    border-radius: 4px;
+    padding: 2px 7px;
+    letter-spacing: 0.02em;
+  }
+  .chip {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    letter-spacing: 0.02em;
+  }
+  .chip-이동 { color: var(--cyan); background: rgba(52, 195, 206, 0.14); }
+  .chip-차단 { color: var(--amber); background: rgba(226, 163, 61, 0.16); }
+  .chip-대기 { color: var(--slate); background: rgba(124, 138, 150, 0.16); }
+
+  .dist { text-align: right; }
+
+  /* ---------- 지표 ---------- */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .metric {
+    background: var(--bg-tile);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .metric-label { font-size: 10px; color: var(--text-muted); letter-spacing: 0.04em; }
+  .metric-value { font-size: 17px; font-weight: 700; margin-top: 2px; }
+
+  /* ---------- 이벤트 로그 ---------- */
+  .event-log {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .event-log li {
+    display: flex;
+    gap: 8px;
+    font-size: 12.5px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .event-log li:last-child { border-bottom: none; }
+  .event-t {
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .event-msg { color: var(--text-secondary); }
+
+  .empty-note {
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 8px 0;
+  }
+
+  /* ---------- 대기 상태 오버레이 ---------- */
+  .waiting-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 13, 16, 0.86);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 10;
+    text-align: center;
+  }
+  .waiting-overlay.show { display: flex; }
+  .waiting-title { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+  .waiting-sub { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+  .waiting-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--slate);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .waiting-dot { animation: none; }
+  }
+
+  @media (max-width: 980px) {
+    .summary { grid-template-columns: repeat(3, 1fr); }
+    .body { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="waiting-overlay" id="waitingOverlay">
+  <div class="waiting-dot"></div>
+  <div class="waiting-title">대기 중 — 시뮬레이션 데이터 없음</div>
+  <div class="waiting-sub">scripts/sumo_demo/out/state.json 대기</div>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">■</span>관제실<span class="brand-sub">POLICE PURSUIT CONTROL · SUMO</span>
+  </div>
+  <div class="fugitive-line" id="fugitiveLine">도주차량 정보 없음</div>
+  <div class="conn" id="connIndicator">
+    <span class="conn-dot"></span>
+    <span id="connText">연결 대기</span>
+  </div>
+</header>
+
+<section class="summary" id="summary">
+  <div class="tile">
+    <div class="tile-label">경과 시간</div>
+    <div class="tile-value num" id="tileElapsed">--:--</div>
+    <div class="tile-sub num" id="tileStep">STEP —</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">배경 차량</div>
+    <div class="tile-value num" id="tileBgVehicles">—</div>
+    <div class="tile-sub">시뮬레이션 내 배경 교통</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">최근접 경찰</div>
+    <div class="tile-value" id="tileNearestOfficer">—</div>
+    <div class="tile-sub num" id="tileNearestDist">거리 —</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">포위 완성률</div>
+    <div class="tile-value num" id="tileContainmentPct">—</div>
+    <div class="meter" id="containmentMeter"></div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">상태</div>
+    <div class="badge state-waiting" id="statusBadge">대기 중</div>
+    <div class="tile-sub" id="tileTick">갱신 —</div>
+  </div>
+</section>
+
+<main class="body">
+  <section class="panel officer-panel">
+    <h2>6대 권고</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>경찰</th>
+          <th>현재 도로</th>
+          <th>권고 행동</th>
+          <th class="dist">도주자 거리</th>
+          <th>상태</th>
+        </tr>
+      </thead>
+      <tbody id="officerTableBody">
+        <tr><td colspan="5" class="empty-note">데이터 없음</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <aside class="side">
+    <section class="panel metrics-panel">
+      <h2>지표</h2>
+      <div class="metrics-grid">
+        <div class="metric">
+          <div class="metric-label">추론 지연 p50</div>
+          <div class="metric-value num" id="metricP50">— ms</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">추론 지연 p99</div>
+          <div class="metric-value num" id="metricP99">— ms</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">갱신 주기</div>
+          <div class="metric-value num" id="metricTick">— s</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">시뮬 스텝</div>
+          <div class="metric-value num" id="metricStep">—</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel events-panel">
+      <h2>이벤트 로그</h2>
+      <ul class="event-log" id="eventLog">
+        <li class="empty-note">이벤트 없음</li>
+      </ul>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var METER_SEGMENTS = 20;
+  var POLL_MS = 500;
+
+  var els = {
+    body: document.body,
+    waitingOverlay: document.getElementById("waitingOverlay"),
+    conn: document.getElementById("connIndicator"),
+    connText: document.getElementById("connText"),
+    fugitiveLine: document.getElementById("fugitiveLine"),
+    tileElapsed: document.getElementById("tileElapsed"),
+    tileStep: document.getElementById("tileStep"),
+    tileBgVehicles: document.getElementById("tileBgVehicles"),
+    tileNearestOfficer: document.getElementById("tileNearestOfficer"),
+    tileNearestDist: document.getElementById("tileNearestDist"),
+    tileContainmentPct: document.getElementById("tileContainmentPct"),
+    containmentMeter: document.getElementById("containmentMeter"),
+    statusBadge: document.getElementById("statusBadge"),
+    tileTick: document.getElementById("tileTick"),
+    officerTableBody: document.getElementById("officerTableBody"),
+    metricP50: document.getElementById("metricP50"),
+    metricP99: document.getElementById("metricP99"),
+    metricTick: document.getElementById("metricTick"),
+    metricStep: document.getElementById("metricStep"),
+    eventLog: document.getElementById("eventLog"),
+  };
+
+  // 상태 배지: 스키마의 5개 status 값을 화면에 필요한 5개 한글 라벨로 매핑한다.
+  // "running"은 하나의 값이지만 포위 완성률에 따라 추적중/포위중 두 라벨로
+  // 갈린다(50% 기준선). waiting은 별도의 "대기 중" 오버레이로 처리된다.
+  function statusLabel(state) {
+    var status = state.status;
+    if (status === "captured") return { text: "검거", cls: "state-captured" };
+    if (status === "escaped") return { text: "탈출", cls: "state-escaped" };
+    if (status === "timeout") return { text: "시간초과", cls: "state-timeout" };
+    if (status === "running") {
+      var pct = typeof state.containment_pct === "number" ? state.containment_pct : 0;
+      if (pct >= 50) return { text: "포위중", cls: "state-containing" };
+      return { text: "추적중", cls: "state-tracking" };
+    }
+    return { text: "대기 중", cls: "state-waiting" };
+  }
+
+  var STATUS_BORDER_COLOR = {
+    "state-captured": "var(--green)",
+    "state-escaped": "var(--red)",
+    "state-timeout": "var(--slate)",
+    "state-containing": "var(--amber)",
+    "state-tracking": "var(--cyan)",
+    "state-waiting": "var(--slate)",
+  };
+
+  function meterColor(pct) {
+    if (pct >= 85) return "var(--green)";
+    if (pct >= 50) return "var(--amber)";
+    return "var(--cyan)";
+  }
+
+  function buildMeter(pct) {
+    els.containmentMeter.innerHTML = "";
+    var on = Math.round((pct / 100) * METER_SEGMENTS);
+    var color = meterColor(pct);
+    for (var i = 0; i < METER_SEGMENTS; i++) {
+      var seg = document.createElement("div");
+      seg.className = "meter-seg" + (i < on ? " on" : "");
+      if (i < on) seg.style.setProperty("--meter-color", color);
+      els.containmentMeter.appendChild(seg);
+    }
+  }
+
+  function fmt1(n) {
+    return typeof n === "number" ? n.toFixed(1) : "—";
+  }
+  function fmt0(n) {
+    return typeof n === "number" ? Math.round(n).toLocaleString("ko-KR") : "—";
+  }
+
+  function renderOfficers(officers, nearestId) {
+    if (!officers || !officers.length) {
+      els.officerTableBody.innerHTML = '<tr><td colspan="5" class="empty-note">데이터 없음</td></tr>';
+      return;
+    }
+    var sorted = officers.slice().sort(function (a, b) {
+      return (a.distance_m || 0) - (b.distance_m || 0);
+    });
+    var rows = sorted.map(function (o) {
+      var st = o.state || "대기";
+      var isNearest = o.id === nearestId;
+      return (
+        '<tr class="' + (isNearest ? "nearest " : "") + "st-" + st + '">' +
+        '<td><span class="officer-id">' + o.id + "</span></td>" +
+        "<td>" + (o.edge || "—") + "</td>" +
+        "<td>" + (o.action || "—") + "</td>" +
+        '<td class="dist num">' + fmt0(o.distance_m) + "m</td>" +
+        '<td><span class="chip chip-' + st + '">' + st + "</span></td>" +
+        "</tr>"
+      );
+    });
+    els.officerTableBody.innerHTML = rows.join("");
+  }
+
+  function renderEvents(events) {
+    if (!events || !events.length) {
+      els.eventLog.innerHTML = '<li class="empty-note">이벤트 없음</li>';
+      return;
+    }
+    var latest = events.slice(-12).reverse();
+    els.eventLog.innerHTML = latest
+      .map(function (e) {
+        return (
+          '<li><span class="event-t num">' + (e.t || "--:--") + "</span>" +
+          '<span class="event-msg">' + (e.msg || "") + "</span></li>"
+        );
+      })
+      .join("");
+  }
+
+  function render(state) {
+    var isWaiting = !state || state.status === "waiting";
+    els.waitingOverlay.classList.toggle("show", isWaiting);
+    els.conn.classList.toggle("live", !isWaiting);
+    els.connText.textContent = isWaiting ? "연결 대기" : "실시간 수신 중";
+
+    if (isWaiting) {
+      els.body.style.borderTopColor = "var(--slate)";
+      return;
+    }
+
+    var label = statusLabel(state);
+    els.statusBadge.textContent = label.text;
+    els.statusBadge.className = "badge " + label.cls;
+    document.body.style.borderTopColor = STATUS_BORDER_COLOR[label.cls] || "var(--slate)";
+
+    els.tileElapsed.textContent = state.elapsed_str || "--:--";
+    els.tileStep.textContent = "STEP " + fmt0(state.step);
+
+    els.tileBgVehicles.textContent = fmt0(state.background_vehicles);
+
+    var nearest = state.nearest || {};
+    els.tileNearestOfficer.textContent = nearest.officer || "—";
+    els.tileNearestDist.textContent = "거리 " + fmt0(nearest.distance_m) + "m";
+
+    var pct = typeof state.containment_pct === "number" ? state.containment_pct : 0;
+    els.tileContainmentPct.textContent = fmt1(pct) + "%";
+    buildMeter(pct);
+
+    els.tileTick.textContent = "갱신 " + fmt1(state.tick_s) + "s";
+
+    renderOfficers(state.officers, nearest.officer);
+
+    var fugitive = state.fugitive || {};
+    if (fugitive.edge) {
+      els.fugitiveLine.innerHTML =
+        "도주차량 · " + fugitive.edge + ' <span class="num">' + fmt1(fugitive.speed_kph) + "km/h</span>";
+    } else {
+      els.fugitiveLine.textContent = "도주차량 정보 없음";
+    }
+
+    var latency = state.latency || {};
+    els.metricP50.textContent = fmt1(latency.p50_ms) + " ms";
+    els.metricP99.textContent = fmt1(latency.p99_ms) + " ms";
+    els.metricTick.textContent = fmt1(state.tick_s) + " s";
+    els.metricStep.textContent = fmt0(state.step);
+
+    renderEvents(state.events);
+  }
+
+  function poll() {
+    fetch("/api/state", { cache: "no-store" })
+      .then(function (res) { return res.json(); })
+      .then(render)
+      .catch(function () { render(null); });
+  }
+
+  poll();
+  setInterval(poll, POLL_MS);
+})();
+</script>
