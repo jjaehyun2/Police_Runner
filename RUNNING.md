@@ -173,6 +173,65 @@ etwork.net.xml)
 
 ---
 
+## 2-3. SUMO 자체 창(SUMO-GUI)으로 보기
+
+관제 화면과 SUMO-GUI는 **목적이 다릅니다.**
+
+| | 관제 화면 (브라우저) | SUMO-GUI |
+|---|---|---|
+| 목적 | 발표·시연 | 물리 검증 |
+| 차량 크기 | 과장 (읽히도록) | 실제 축척 |
+| 도시 전체 볼 때 | 차량이 또렷함 | 차량이 점보다 작음 |
+| 보이는 것 | 포위 상황·권고·지표 | 차선·신호 현시·차간거리 |
+
+"진짜 교통 시뮬레이터 위에서 돌고 있다"를 보여줄 때 SUMO-GUI를 씁니다.
+
+### 방법 1 — 전용 런처 (권장)
+
+```powershell
+cd C:\Users\dmsak\Police_Runner
+
+# 배경교통 + 차단만 있는 지도 (추격 차량 없음)
+py -3.12 scripts\sumo_demo\open_sumo_gui.py
+
+# 옵션 지정
+py -3.12 scripts\sumo_demo\open_sumo_gui.py --background 400 --barriers 12 --delay 200
+
+# 추격까지 함께 재생
+py -3.12 scripts\sumo_demo\open_sumo_gui.py --live --barriers 8
+```
+
+해시가 붙은 네트워크 경로를 직접 찾을 필요 없이 알아서 빌드하고 엽니다.
+
+### 방법 2 — run_demo 에서 바로
+
+```powershell
+py -3.12 scripts\sumo_demo\run_demo.py --gui --episodes 1 --realtime 0.15 --barriers 8
+```
+
+브라우저 관제 화면도 **동시에** 갱신되므로, SUMO-GUI와 관제 화면을 나란히 놓고
+같은 에피소드를 두 관점으로 보여줄 수 있습니다.
+
+### SUMO-GUI 조작
+
+| 조작 | 동작 |
+|---|---|
+| 마우스 휠 | 확대·축소 (**처음엔 반드시 확대하세요** — 도시 전체 배율에서는 차가 안 보입니다) |
+| 마우스 드래그 | 이동 |
+| 차량 우클릭 → Show Parameter | 속도·경로·차종 확인 |
+| 차량 우클릭 → Start Tracking | 그 차를 카메라가 따라감 (도주차 `F0` 추천) |
+| 상단 ▶/⏸ | 재생·일시정지 · 옆 슬라이더로 속도 조절 |
+| View → Vehicles → Exaggerate | 차량 크게 그리기 (기본 뷰에서 차가 안 보일 때) |
+
+차량 색: **파랑=경찰(P0~P5) · 빨강=도주차(F0) · 노랑=배경차**
+
+### 차단 지점이 안 보일 때
+
+차단은 POI로 표시됩니다. `View settings → POIs` 에서 크기를 키우거나,
+`--barrier-image` 로 PNG 아이콘을 지정하면 눈에 잘 띕니다(§2-2).
+
+---
+
 ## 3. 테스트
 
 ```powershell
