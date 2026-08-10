@@ -76,6 +76,13 @@ class SumoEpisodeConfig:
     #: 에피소드마다 무작위로 놓이는 도로 차단(공사·사고·경찰 차단선).
     #: 모든 도로가 늘 열려 있는 지도에서는 우회 판단을 배울 일이 없다.
     barriers: BarrierConfig = field(default_factory=BarrierConfig)
+    #: 경찰 초기 배치 반경(m). 전역 무작위로 뿌리면 도주자에서 3km 넘게
+    #: 떨어져 시작하는 순찰차가 나오는데, 그 차는 에피소드 내내 따라붙기만
+    #: 하다 끝나고 포위에 기여하지 못한다. 실제 관할 순찰 배치도 사건
+    #: 반경 수백 m~1km 대이므로 그 범위로 좁힌다.
+    police_spawn_radius_m: float = 1200.0
+    #: 도주자 바로 옆에서 시작하면 추격 자체가 성립하지 않는다.
+    police_spawn_min_radius_m: float = 250.0
 
     def __post_init__(self) -> None:
         if self.step_length_s <= 0 or self.max_steps <= 0:
@@ -321,10 +328,8 @@ class SumoPursuitEnv:
     # ------------------------------------------------------------------
     def _insert_pursuit_vehicles(self, seed: int) -> None:
         """Place the fugitive and six officers on well-separated edges."""
-        police_edges = dispersed_spawn_edges(
-            self.sumolib_net, count=POLICE_COUNT, seed=seed + 977, min_separation_m=400.0
-        )
-        fugitive_edge = self._interior_spawn_edge(seed + 313, exclude=set(police_edges))
+        fugitive_edge = self._interior_spawn_edge(seed + 313, exclude=set())
+        police_edges = self._police_spawn_edges(seed + 977, fugitive_edge)
         connection = self._connection
         connection.route.add("fugitive_route", [fugitive_edge])
         connection.vehicle.add(
@@ -403,6 +408,71 @@ class SumoPursuitEnv:
         self._barriers = tuple(item for item in chosen if item.edge_id in applied)
         if self._barriers:
             self._events.append(f"barriers_installed:{len(self._barriers)}")
+
+    def _police_spawn_edges(self, seed: int, fugitive_edge: str) -> list[str]:
+        """Place officers in a ring around the fugitive rather than city-wide.
+
+        A uniformly random placement regularly started a patrol car three
+        kilometres out; at a 7 m/s closing speed that car spends the whole
+        episode in transit and never contributes to the encirclement, which
+        made the officer-count look larger than the force that actually
+        played.  Officers are drawn from a distance band and spread across
+        distinct bearings so they still approach from different sides.
+        """
+        import random
+
+        net = self.sumolib_net
+        shape = net.getEdge(fugitive_edge).getShape()
+        origin = (
+            sum(point[0] for point in shape) / len(shape),
+            sum(point[1] for point in shape) / len(shape),
+        )
+        inner = self.config.police_spawn_min_radius_m
+        outer = self.config.police_spawn_radius_m
+
+        candidates: list[tuple[float, str, tuple[float, float]]] = []
+        for edge in net.getEdges():
+            edge_id = edge.getID()
+            if edge_id.startswith(":") or edge_id == fugitive_edge:
+                continue
+            if edge.getLength() < 30.0 or not edge.getOutgoing():
+                continue
+            points = edge.getShape()
+            centre = (
+                sum(point[0] for point in points) / len(points),
+                sum(point[1] for point in points) / len(points),
+            )
+            gap = math.dist(centre, origin)
+            if inner <= gap <= outer:
+                candidates.append((math.atan2(centre[1] - origin[1], centre[0] - origin[0]),
+                                   edge_id, centre))
+        if len(candidates) < POLICE_COUNT:
+            # Sparse extract: fall back to the previous city-wide draw rather
+            # than refusing to build an episode.
+            return dispersed_spawn_edges(
+                net, count=POLICE_COUNT, seed=seed, min_separation_m=400.0
+            )
+
+        rng = random.Random(seed)
+        rng.shuffle(candidates)
+        sector = 2.0 * math.pi / POLICE_COUNT
+        chosen: list[str] = []
+        taken: set[int] = set()
+        for bearing, edge_id, _centre in candidates:
+            index = int((bearing + math.pi) / sector) % POLICE_COUNT
+            if index in taken:
+                continue
+            taken.add(index)
+            chosen.append(edge_id)
+            if len(chosen) == POLICE_COUNT:
+                return chosen
+        # Bearings did not cover every sector; top up with whatever is left.
+        for _bearing, edge_id, _centre in candidates:
+            if edge_id not in chosen:
+                chosen.append(edge_id)
+            if len(chosen) == POLICE_COUNT:
+                break
+        return chosen
 
     # ------------------------------------------------------------------
     # Observation of raw state

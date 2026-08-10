@@ -33,23 +33,31 @@ BLOCKABLE_CLASSES = frozenset({
 class BarrierConfig:
     """에피소드당 차단 구간 설정.
 
-    ``count`` 는 차단 구간 수, ``min_distance_from_fugitive_m`` 는 도주자
-    시작점에서 이 거리 안쪽은 막지 않는다는 뜻이다. 시작하자마자 도주자가
-    막힌 길에 갇히면 그 에피소드는 정책을 평가하지 못한다.
+    ``count`` 는 차단 구간 수. 도주자 시작점 기준으로 ``min_distance``
+    안쪽은 막지 않고(시작하자마자 갇히면 정책을 평가할 수 없다),
+    ``max_distance`` 바깥도 막지 않는다(추격과 무관한 외곽 차단은 화면만
+    어지럽히고 경로 판단에 영향을 주지 않는다).
     """
 
-    count: int = 6
-    min_distance_from_fugitive_m: float = 500.0
+    count: int = 8
+    min_distance_from_fugitive_m: float = 400.0
+    #: 차단은 추격이 벌어지는 권역 안에 있어야 의미가 있다. 도시 전역에
+    #: 흩뿌리면 대부분이 추격과 무관한 외곽에 놓여, 화면만 어지럽히고
+    #: 경로 판단에는 아무 영향도 주지 않는다.
+    max_distance_from_fugitive_m: float = 2200.0
     min_edge_length_m: float = 60.0
-    min_separation_m: float = 350.0
+    min_separation_m: float = 300.0
     enabled: bool = True
 
     def __post_init__(self) -> None:
         if self.count < 0:
             raise ValueError("count must be non-negative")
-        for name in ("min_distance_from_fugitive_m", "min_edge_length_m", "min_separation_m"):
+        for name in ("min_distance_from_fugitive_m", "max_distance_from_fugitive_m",
+                     "min_edge_length_m", "min_separation_m"):
             if float(getattr(self, name)) < 0.0:
                 raise ValueError(f"{name} must be non-negative")
+        if self.max_distance_from_fugitive_m <= self.min_distance_from_fugitive_m:
+            raise ValueError("max_distance_from_fugitive_m must exceed the minimum")
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +110,9 @@ def choose_barriers(
             continue
         x, y, angle = _midpoint_and_angle(edge)
         if fugitive_xy is not None:
-            if math.dist((x, y), fugitive_xy) < config.min_distance_from_fugitive_m:
+            gap = math.dist((x, y), fugitive_xy)
+            if not (config.min_distance_from_fugitive_m <= gap
+                    <= config.max_distance_from_fugitive_m):
                 continue
         candidates.append(Barrier(edge_id, x, y, angle))
     if not candidates:
