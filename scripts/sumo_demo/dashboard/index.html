@@ -503,6 +503,18 @@
   function fmt1(n) {
     return typeof n === "number" ? n.toFixed(1) : "—";
   }
+
+  // 지연은 서브밀리초까지 내려가므로 소수 1자리로 반올림하면 "0.0 ms"가 되어
+  // 측정 실패처럼 읽힌다. 크기에 따라 자릿수를 바꿔 실제 값이 보이게 한다.
+  function fmtLatency(n) {
+    if (typeof n !== "number" || !isFinite(n)) return "\u2014 ms";
+    if (n >= 100) return n.toFixed(0) + " ms";
+    if (n >= 10) return n.toFixed(1) + " ms";
+    if (n >= 1) return n.toFixed(2) + " ms";
+    if (n > 0) return n.toFixed(3) + " ms";
+    return "0 ms";
+  }
+
   function fmt0(n) {
     return typeof n === "number" ? Math.round(n).toLocaleString("ko-KR") : "—";
   }
@@ -589,8 +601,8 @@
     }
 
     var latency = state.latency || {};
-    els.metricP50.textContent = fmt1(latency.p50_ms) + " ms";
-    els.metricP99.textContent = fmt1(latency.p99_ms) + " ms";
+    els.metricP50.textContent = fmtLatency(latency.p50_ms);
+    els.metricP99.textContent = fmtLatency(latency.p99_ms);
     els.metricTick.textContent = fmt1(state.tick_s) + " s";
     els.metricStep.textContent = fmt0(state.step);
 
