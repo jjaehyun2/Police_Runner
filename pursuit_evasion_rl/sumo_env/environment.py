@@ -57,6 +57,17 @@ class SumoEpisodeConfig:
     #: stays inside the extract -- i.e. the bbox boundary.
     escape_on_boundary: bool = True
     gui: bool = False
+    #: Milliseconds SUMO-GUI pauses between steps.  Without this the window
+    #: replays a 400-step episode faster than anyone can watch it.
+    gui_delay_ms: int = 120
+    #: Cars are ~5 m on a ~3 km extract, i.e. sub-pixel at whole-network zoom,
+    #: so SUMO-GUI shows an empty map unless vehicles are drawn oversized.
+    gui_vehicle_scale: float = 14.0
+    #: Camera follows the fugitive; without it the viewport sits on the whole
+    #: city and the pursuit happens somewhere off in the corner.
+    gui_follow_fugitive: bool = True
+    #: SUMO zoom level; ~1200 frames a few blocks around the tracked car.
+    gui_zoom: float = 1200.0
     seed: int = 0
     traffic: TrafficConfig = field(default_factory=TrafficConfig)
 
@@ -178,7 +189,13 @@ class SumoPursuitEnv:
             "--default.carfollowmodel", "Krauss",
         ]
         if self.config.gui:
-            command += ["--start", "true", "--quit-on-end", "true"]
+            command += [
+                "--start", "true",
+                "--quit-on-end", "false",          # leave the result on screen
+                "--delay", str(self.config.gui_delay_ms),
+                "--gui-settings-file", str(self._write_gui_settings()),
+                "--window-size", "1280,860",
+            ]
         traci.start(command, label=self.label)
         self._connection = traci.getConnection(self.label)
         self._connected = True
@@ -192,6 +209,7 @@ class SumoPursuitEnv:
 
         self._insert_pursuit_vehicles(episode_seed)
         self._connection.simulationStep()
+        self._configure_gui()
         self._events.append("episode_started")
         return self.episode_state()
 
@@ -210,6 +228,84 @@ class SumoPursuitEnv:
 
     def __exit__(self, *exc_info) -> None:
         self.close()
+
+    #: Name of the view scheme this environment writes and then selects.
+    GUI_SCHEME = "police-runner"
+
+    def _write_gui_settings(self) -> Path:
+        """Write the SUMO-GUI view configuration used for demos.
+
+        ``vehicleExaggeration`` does the real work.  At the zoom needed to see
+        a whole city extract a true-to-size 5 m car covers less than a pixel,
+        which is why an unconfigured SUMO-GUI looks like an empty road map.
+        Colouring by the given vehicle colour keeps the assignments this
+        environment makes -- blue officers, red fugitive, default background
+        traffic -- instead of SUMO's own speed-based palette.
+        """
+        path = self.work_dir / "gui-settings.xml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f"""<viewsettings>
+  <scheme name="{self.GUI_SCHEME}">
+    <opengl dither="0" fps="0" drawBoundaries="0"/>
+    <background backgroundColor="18,20,24" showGrid="0"
+                gridXSize="100.00" gridYSize="100.00"/>
+    <edges laneEdgeMode="0" scaleMode="0" laneShowBorders="1"
+           showLinkDecals="1" showRails="1" edgeName_show="0"
+           streetName_show="0" edgeValue_show="0">
+      <colorScheme name="uniform">
+        <entry color="90,95,105"/>
+      </colorScheme>
+      <scalingScheme name="default">
+        <entry color="1.0"/>
+      </scalingScheme>
+    </edges>
+    <vehicles vehicleMode="0" vehicleQuality="2"
+              vehicle_minGap_show="0" vehicleName_show="0"
+              vehicleText_show="0" minVehicleSize="6.00"
+              vehicleExaggeration="{self.config.gui_vehicle_scale:.2f}"
+              showBlinker="1" drawMinGap="0">
+      <colorScheme name="given vehicle/type/route color"/>
+      <scalingScheme name="uniform">
+        <entry color="1.0"/>
+      </scalingScheme>
+    </vehicles>
+    <junctions junctionMode="0" drawShape="1" drawCrossingsAndWalkingareas="0"
+               junctionName_show="0" internalJunctionName_show="0">
+      <colorScheme name="uniform">
+        <entry color="60,64,72"/>
+      </colorScheme>
+    </junctions>
+    <additionals addMode="0" addName_show="0"/>
+    <pois poiName_show="0" poiTextParam_show="0"/>
+    <polys polyName_show="0" polyType_show="0"/>
+    <legend showSizeLegend="1" showColorLegend="0" showVehicleColorLegend="0"/>
+  </scheme>
+  <delay value="{self.config.gui_delay_ms}"/>
+</viewsettings>
+""",
+            encoding="utf-8",
+        )
+        return path
+
+    def _configure_gui(self) -> None:
+        """Select the demo scheme, zoom in, and lock the camera on the pursuit."""
+        if not self.config.gui:
+            return
+        view = "View #0"
+        connection = self._connection
+        try:
+            connection.gui.setSchema(view, self.GUI_SCHEME)
+        except Exception:
+            # The scheme file may not have been picked up; the default view is
+            # still usable, so this is a downgrade rather than a failure.
+            self._events.append("gui_scheme_unavailable")
+        try:
+            if self.config.gui_follow_fugitive:
+                connection.gui.trackVehicle(view, FUGITIVE_ID)
+            connection.gui.setZoom(view, self.config.gui_zoom)
+        except Exception as error:
+            self._events.append(f"gui_camera_skipped:{type(error).__name__}")
 
     # ------------------------------------------------------------------
     # Setup helpers

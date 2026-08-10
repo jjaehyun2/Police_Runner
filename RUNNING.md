@@ -23,16 +23,62 @@ py -3.12 -c "import sumolib; print(sumolib.checkBinary('sumo'))"
 
 ---
 
-## 1. 제일 먼저 볼 것 — SUMO 데모
+## 1. 제일 먼저 볼 것 — 관제 화면 데모
 
-### 헤드리스 (숫자만, 빠름)
+**터미널 2개**를 씁니다.
+
+### 터미널 A — 시뮬레이션
+
+```powershell
+cd C:\Users\dmsak\Police_Runner
+py -3.12 scripts\sumo_demo\run_demo.py --episodes 1 --max-steps 400 --background 320 --realtime 0.25
+```
+
+`--gui`는 **넣지 마세요.** SUMO 자체 창은 띄우지 않고 데이터만 뽑습니다.
+`--realtime` 이 재생 속도입니다 (0.25 = 스텝당 0.25초, 숫자를 키우면 느려짐).
+
+첫 실행은 대전 OSM을 SUMO 도로망으로 변환하느라 수십 초 걸리고, 이후에는 캐시를 씁니다.
+
+### 터미널 B — 화면 서버
+
+```powershell
+cd C:\Users\dmsak\Police_Runner
+py -3.12 scripts\sumo_demo\dashboard\server.py --port 8020
+```
+
+### 브라우저
+
+<http://127.0.0.1:8020>
+
+### 화면 보는 법
+
+| 요소 | 의미 |
+|---|---|
+| 빨간 차 + 발광 + 점선 원 | 도주차량. 점선 원이 검거 반경 25 m, 바깥 흐린 원이 250 m 포위선 |
+| 파란 차 (지붕 경광등) | 경찰차 6대. 차 위 라벨이 P0~P5 |
+| 회색 차 | 배경 일반차량 (기본 320대) |
+| 파란 곡선 화살표 | 각 경찰차 → 배정된 차단 지점 |
+| 3구 신호기 | 실제 SUMO 신호. 점등된 색이 현재 현시 |
+| 오른쪽 패널 | 6대 권고 / 추론 지연 / 이벤트 로그 |
+| 위쪽 타일 | 경과·배경차량·최근접 경찰·포위 완성률·상태 |
+
+### 지도 조작
+
+| 조작 | 동작 |
+|---|---|
+| 마우스 휠 | 확대·축소 |
+| 드래그 | 화면 이동 (자유 이동 모드로 전환) |
+| 더블클릭 또는 **시점 초기화** 버튼 | 도주차량 추적 모드로 복귀 |
+
+왼쪽 아래 HUD에 현재 카메라 모드와 배율이 표시됩니다.
+
+---
+
+## 2. 숫자만 빠르게 (헤드리스)
 
 ```powershell
 py -3.12 scripts\sumo_demo\run_demo.py --episodes 12 --max-steps 400 --background 280
 ```
-
-첫 실행 때 대전 OSM 캐시를 SUMO 도로망으로 변환합니다(수십 초, 이후 캐시 재사용).
-출력 예시:
 
 ```
 network: edges=2630 nodes=1031 traffic_lights=84
@@ -41,24 +87,6 @@ seed=7   outcome=capture  steps=94  background=217  min_sep=19.0m p50=0.01ms
 scored=12 capture=11 (92%) escape=0 timeout=1  [void=0 excluded]
 ```
 
-### 화면으로 보기 — SUMO-GUI
-
-```powershell
-py -3.12 scripts\sumo_demo\run_demo.py --gui --realtime 0.1 --episodes 1 --max-steps 400
-```
-
-SUMO-GUI 창이 뜹니다. 보는 법:
-
-| 색 | 차량 |
-|---|---|
-| 파랑 | 경찰차 6대 (P0~P5) |
-| 빨강 | 도주차량 (F0) |
-| 노랑(기본) | 배경차량 280대 |
-
-- 왼쪽 위 확대/축소, 마우스 휠로 줌
-- 우클릭 → `Show Parameter`로 차량 속도·경로 확인
-- 신호등 84개가 실제로 동작합니다 — 경찰차가 신호에 걸리는 걸 볼 수 있습니다
-
 ### 주요 옵션
 
 | 옵션 | 뜻 | 기본값 |
@@ -66,39 +94,14 @@ SUMO-GUI 창이 뜹니다. 보는 법:
 | `--episodes N` | 에피소드 수 | 1 |
 | `--max-steps N` | 에피소드당 최대 스텝(=초) | 450 |
 | `--background N` | 배경차량 수 | 300 |
-| `--gui` | SUMO-GUI 창 띄우기 | 꺼짐 |
-| `--realtime S` | 스텝당 대기 초 (GUI 볼 때 0.1 권장) | 0 |
+| `--realtime S` | 스텝당 대기 초 (화면으로 볼 때 0.2~0.3) | 0 |
 | `--seed N` | 시작 시드 | 7 |
-| `--no-live` | 대시보드용 state.json 쓰지 않기 | 씀 |
+| `--gui` | SUMO 자체 창도 함께 띄움 (보통 불필요) | 꺼짐 |
+| `--no-live` | 화면용 파일을 쓰지 않음 | 씀 |
 
----
-
-## 2. 관제 대시보드
-
-**터미널 2개**가 필요합니다.
-
-터미널 A — 시뮬레이션 (상태를 계속 씀):
-
-```powershell
-cd C:\Users\dmsak\Police_Runner
-py -3.12 scripts\sumo_demo\run_demo.py --gui --realtime 0.15 --episodes 1 --max-steps 400
-```
-
-터미널 B — 대시보드 서버:
-
-```powershell
-cd C:\Users\dmsak\Police_Runner
-py -3.12 scripts\sumo_demo\dashboard\server.py --port 8020
-```
-
-브라우저에서 <http://127.0.0.1:8020> 접속.
-
-발표 배치: **왼쪽 SUMO-GUI(지도·차량) + 오른쪽 브라우저(관제 패널)**.
-
-패널 구성: 상황 요약(경과·배경차량·최근접 경찰·포위 완성률·상태) /
-6대 권고 테이블 / 지표(추론 지연 p50·p99, 갱신 주기) / 이벤트 로그.
-
-시뮬레이션이 안 돌고 있으면 "대기 중" 화면이 뜹니다 — 정상입니다.
+> SUMO 자체 GUI(`--gui`)는 교통공학용이라 차량을 실제 축척으로 그립니다.
+> 도시 한 구역이 들어오는 배율에서 5 m 승용차는 1픽셀도 안 되므로 빈 도로지도처럼
+> 보입니다. 발표용으로는 위의 관제 화면을 쓰세요.
 
 ---
 

@@ -28,10 +28,13 @@ from pursuit_evasion_rl.sumo_env.net_builder import (  # noqa: E402
     build_network, largest_cached_snapshot,
 )
 from pursuit_evasion_rl.sumo_env.policies import EncirclementPolicy  # noqa: E402
+from pursuit_evasion_rl.sumo_env.scene import export_network, scene_frame  # noqa: E402
 from pursuit_evasion_rl.sumo_env.traffic import TrafficConfig  # noqa: E402
 
 OUT_DIR = Path(__file__).resolve().parent / "out"
 STATE_PATH = OUT_DIR / "state.json"
+NETWORK_PATH = OUT_DIR / "network.json"
+SCENE_PATH = OUT_DIR / "scene.json"
 
 OUTCOME_LABEL = {
     EpisodeOutcome.CAPTURE: "captured",
@@ -86,7 +89,7 @@ def _distance(a, b) -> float:
     return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
 
 
-def _write_state(env, state, latencies, tick_s, events) -> None:
+def _write_state(env, state, latencies, tick_s, events, scene=None) -> None:
     fugitive = state.fugitive
     officers = []
     nearest = {"officer": None, "distance_m": None}
@@ -123,6 +126,13 @@ def _write_state(env, state, latencies, tick_s, events) -> None:
         "tick_s": tick_s,
         "events": events[-12:],
     }
+    if scene is not None:
+        # The map view is written separately: it changes every frame and is an
+        # order of magnitude larger than the panel data, so a dashboard that
+        # only wants the numbers never has to download it.
+        temporary_scene = SCENE_PATH.with_suffix(".json.tmp")
+        temporary_scene.write_text(json.dumps(scene, separators=(",", ":")), encoding="utf-8")
+        temporary_scene.replace(SCENE_PATH)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     temporary = STATE_PATH.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -133,6 +143,10 @@ def run_episode(env, seed, *, live, realtime_s, quiet=False):
     state = env.reset(seed=seed)
     policy = EncirclementPolicy(env)
     latencies, events = [], []
+    origin = (0.0, 0.0)
+    if live:
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        origin = tuple(export_network(env, NETWORK_PATH)["origin"])
     while state.outcome is None:
         started = time.perf_counter()
         targets = policy.dispatch(state)
@@ -143,11 +157,13 @@ def run_episode(env, seed, *, live, realtime_s, quiet=False):
             if not events or events[-1] != entry:
                 events.append(entry)
         if live:
-            _write_state(env, state, latencies, realtime_s, events)
+            frame = scene_frame(env, origin, assignments=policy._assignments)
+            _write_state(env, state, latencies, realtime_s, events, scene=frame)
             if realtime_s:
                 time.sleep(realtime_s)
     if live:
-        _write_state(env, state, latencies, realtime_s, events)
+        frame = scene_frame(env, origin, assignments=policy._assignments)
+        _write_state(env, state, latencies, realtime_s, events, scene=frame)
     separation = env.min_separation_m()
     if not quiet:
         print("seed=%-3d outcome=%-8s steps=%-4d background=%-4d min_sep=%s p50=%.2fms"
