@@ -20,6 +20,9 @@ import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from pursuit_evasion_rl.sumo_env.barriers import (
+    Barrier, BarrierConfig, apply_barriers, choose_barriers,
+)
 from pursuit_evasion_rl.sumo_env.net_builder import SumoNetwork, sumo_binary, sumo_home
 from pursuit_evasion_rl.sumo_env.traffic import (
     TrafficConfig,
@@ -70,6 +73,9 @@ class SumoEpisodeConfig:
     gui_zoom: float = 1200.0
     seed: int = 0
     traffic: TrafficConfig = field(default_factory=TrafficConfig)
+    #: 에피소드마다 무작위로 놓이는 도로 차단(공사·사고·경찰 차단선).
+    #: 모든 도로가 늘 열려 있는 지도에서는 우회 판단을 배울 일이 없다.
+    barriers: BarrierConfig = field(default_factory=BarrierConfig)
 
     def __post_init__(self) -> None:
         if self.step_length_s <= 0 or self.max_steps <= 0:
@@ -141,6 +147,7 @@ class SumoPursuitEnv:
         self._route_path: Path | None = None
         self._congested: tuple[str, ...] = ()
         self._targets: dict[str, str] = {}
+        self._barriers: tuple[Barrier, ...] = ()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -203,12 +210,14 @@ class SumoPursuitEnv:
         self._outcome = None
         self._events = []
         self._targets = {}
+        self._barriers = ()
 
         for _ in range(max(0, traffic_config.warmup_steps)):
             self._connection.simulationStep()
 
         self._insert_pursuit_vehicles(episode_seed)
         self._connection.simulationStep()
+        self._install_barriers(episode_seed)
         self._configure_gui()
         self._events.append("episode_started")
         return self.episode_state()
@@ -375,6 +384,25 @@ class SumoPursuitEnv:
         if not candidates:
             raise RuntimeError("network has no interior edge for the fugitive")
         return random.Random(seed).choice(sorted(candidates))
+
+    @property
+    def barriers(self) -> tuple[Barrier, ...]:
+        """이번 에피소드에 설치된 차단 구간."""
+        return self._barriers
+
+    def _install_barriers(self, seed: int) -> None:
+        """도주자 위치를 피해 차단 구간을 고르고 시뮬레이션에 반영한다."""
+        if not self.config.barriers.enabled:
+            return
+        fugitive = self._vehicle_view(FUGITIVE_ID)
+        chosen = choose_barriers(
+            self.sumolib_net, self.config.barriers, seed=seed + 4231,
+            fugitive_xy=fugitive.position_xy if fugitive else None,
+        )
+        applied = set(apply_barriers(self._connection, chosen))
+        self._barriers = tuple(item for item in chosen if item.edge_id in applied)
+        if self._barriers:
+            self._events.append(f"barriers_installed:{len(self._barriers)}")
 
     # ------------------------------------------------------------------
     # Observation of raw state

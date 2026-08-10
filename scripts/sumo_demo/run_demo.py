@@ -28,12 +28,15 @@ from pursuit_evasion_rl.sumo_env.net_builder import (  # noqa: E402
     build_network, largest_cached_snapshot,
 )
 from pursuit_evasion_rl.sumo_env.policies import EncirclementPolicy  # noqa: E402
+from pursuit_evasion_rl.sumo_env.barriers import write_poi_additional  # noqa: E402
 from pursuit_evasion_rl.sumo_env.scene import export_network, scene_frame  # noqa: E402
+from pursuit_evasion_rl.sumo_env.barriers import BarrierConfig  # noqa: E402
 from pursuit_evasion_rl.sumo_env.traffic import TrafficConfig  # noqa: E402
 
 OUT_DIR = Path(__file__).resolve().parent / "out"
 STATE_PATH = OUT_DIR / "state.json"
 NETWORK_PATH = OUT_DIR / "network.json"
+BARRIER_POI_PATH = OUT_DIR / "barriers.add.xml"
 SCENE_PATH = OUT_DIR / "scene.json"
 
 OUTCOME_LABEL = {
@@ -160,7 +163,7 @@ def _write_state(env, state, latencies, tick_s, events, scene=None) -> None:
     _publish(STATE_PATH, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
-def run_episode(env, seed, *, live, realtime_s, quiet=False):
+def run_episode(env, seed, *, live, realtime_s, quiet=False, barrier_image=None):
     state = env.reset(seed=seed)
     policy = EncirclementPolicy(env)
     latencies, events = [], []
@@ -168,6 +171,9 @@ def run_episode(env, seed, *, live, realtime_s, quiet=False):
     if live:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         origin = tuple(export_network(env, NETWORK_PATH)["origin"])
+        # SUMO 자체 창을 함께 띄울 때 차단 지점을 보여주기 위한 additional 파일.
+        # 우리 관제 화면은 이 파일 없이도 그린다.
+        write_poi_additional(env.barriers, BARRIER_POI_PATH, image_file=barrier_image)
     while state.outcome is None:
         started = time.perf_counter()
         targets = policy.dispatch(state)
@@ -204,12 +210,16 @@ def main() -> int:
     parser.add_argument("--realtime", type=float, default=0.0,
                         help="seconds to sleep per step (use 0.1 with --gui)")
     parser.add_argument("--no-live", action="store_true", help="do not write state.json")
+    parser.add_argument("--barriers", type=int, default=6,
+                        help="에피소드당 무작위 도로 차단 수 (0이면 끔)")
+    parser.add_argument("--barrier-image", default=None,
+                        help="SUMO additional 파일에 쓸 아이콘 PNG 경로 (선택)")
     args = parser.parse_args()
 
     network = build_network(largest_cached_snapshot(REPO_ROOT / "cache"),
                             output_root=REPO_ROOT / "cache/sumo")
-    print("network: edges=%d nodes=%d traffic_lights=%d"
-          % (network.edge_count, network.node_count, network.traffic_light_count))
+    print("network: edges=%d nodes=%d traffic_lights=%d  barriers/episode=%d"
+          % (network.edge_count, network.node_count, network.traffic_light_count, args.barriers))
 
     outcomes, all_latencies = [], []
     for index in range(args.episodes):
@@ -217,11 +227,13 @@ def main() -> int:
         config = SumoEpisodeConfig(
             max_steps=args.max_steps, gui=args.gui, seed=seed,
             traffic=TrafficConfig(vehicle_count=args.background, seed=seed),
+            barriers=BarrierConfig(count=args.barriers, enabled=args.barriers > 0),
         )
         env = SumoPursuitEnv(network, config, work_dir=REPO_ROOT / "cache/sumo/runs")
         try:
             state, latencies = run_episode(
-                env, seed, live=not args.no_live, realtime_s=args.realtime
+                env, seed, live=not args.no_live, realtime_s=args.realtime,
+                barrier_image=args.barrier_image,
             )
             outcomes.append(state.outcome)
             all_latencies.extend(latencies)

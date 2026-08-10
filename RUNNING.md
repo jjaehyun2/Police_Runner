@@ -105,6 +105,74 @@ scored=12 capture=11 (92%) escape=0 timeout=1  [void=0 excluded]
 
 ---
 
+## 2-1. 도로 차단(바리케이드)
+
+에피소드마다 무작위 위치에 통행 차단 구간이 생깁니다. 공사·사고·집회로 막힌 길이자
+경찰 차단선이기도 하고, 매번 지형이 조금씩 달라지므로 정책이 특정 도로 구성에
+과적합하는 것을 막습니다(도메인 랜덤화).
+
+```powershell
+# 차단 12곳으로 늘리기
+py -3.12 scripts\sumo_demo\run_demo.py --episodes 1 --barriers 12 --realtime 0.25
+
+# 차단 없이
+py -3.12 scripts\sumo_demo\run_demo.py --episodes 1 --barriers 0
+```
+
+화면에는 **주황색 줄무늬 판 + 발광**으로 표시되고 "차단" 라벨이 붙습니다.
+왼쪽 아래 HUD와 오른쪽 위 범례에도 개수가 나옵니다.
+
+차단 지점은 다음 두 조건을 지켜서 고릅니다.
+
+| 조건 | 이유 |
+|---|---|
+| 도주자 시작점에서 500 m 밖 | 시작하자마자 갇히면 그 에피소드는 정책을 평가하지 못함 |
+| 출구가 2개 이상인 도로만 | 막다른 길을 막으면 그 너머 지역이 통째로 고립됨 |
+
+---
+
+## 2-2. 차단 아이콘을 그림으로 바꾸기 (SUMO XML)
+
+SUMO 는 `additional` XML 의 POI 에 **`imgFile` 속성으로 PNG 를 띄울 수 있습니다.**
+러너는 매 에피소드 `scripts\sumo_demo\out\barriers.add.xml` 을 자동으로 만듭니다.
+
+```powershell
+# 아이콘 지정해서 실행 (PNG 경로는 절대경로 또는 XML 기준 상대경로)
+py -3.12 scripts\sumo_demo\run_demo.py --episodes 1 --barriers 8 ^
+    --barrier-image C:\Users\dmsak\Police_Runner\assets\barrier.png
+```
+
+만들어지는 XML 은 이런 모양입니다.
+
+```xml
+<additional>
+  <poi id="barrier0" x="1334.20" y="2755.20" layer="20" type="barrier"
+       imgFile="barrier.png" width="18.0" height="18.0" angle="-88.8"/>
+</additional>
+```
+
+이 파일을 SUMO 자체 창에서 보려면 `--gui` 와 함께 additional 로 넘기면 됩니다.
+
+```powershell
+# SUMO-GUI 로 직접 열기 (네트워크 경로는 cache\sumo\<해시>
+etwork.net.xml)
+& "$env:SUMO_HOME\bin\sumo-gui.exe" `
+    -n cache\sumo\<해시>\network.net.xml `
+    -a scripts\sumo_demo\out\barriers.add.xml
+```
+
+> `SUMO_HOME` 은 pip 로 설치한 경우
+> `C:\Users\dmsak\AppData\Local\Programs\Python\Python312\Lib\site-packages\sumo` 입니다.
+> 네트워크 해시 폴더 이름은 `py -3.12 -c "from pursuit_evasion_rl.sumo_env.net_builder import *; print(build_network(largest_cached_snapshot('cache')).net_path)"` 로 확인할 수 있습니다.
+
+**차량 아이콘까지 그림으로 바꾸려면** 같은 방식으로 POI 를 쓰는 대신, SUMO 의
+`vehicleQuality="3"` (실사 형상) 을 쓰거나 vType 에 `imgFile` 을 지정합니다.
+다만 관제 화면(브라우저)은 SUMO 렌더링을 쓰지 않고 직접 그리므로, 그쪽 아이콘을
+바꾸려면 `scripts\sumo_demo\dashboard\map.js` 의 `drawCar` / `drawBarriers` 를
+수정하면 됩니다.
+
+---
+
 ## 3. 테스트
 
 ```powershell

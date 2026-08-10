@@ -25,6 +25,7 @@
     glass: "rgba(220,240,255,0.75)",
     arrow: "rgba(61,139,253,0.75)",
     red: "#e5484d", yellow: "#e5a13a", green: "#3fbf6a", off: "#3a424c",
+    amber: "#e5a13a",
     text: "#e6edf3"
   };
 
@@ -152,7 +153,7 @@
     drawSignals(view);
     if (scene) {
       drawPerimeter(now);
-      drawArrows();
+      drawBarriers(view);
       drawVehicles(now);
     } else {
       hint(w, h, "시뮬레이션 대기 중…");
@@ -277,34 +278,53 @@
     ctx.setLineDash([]);
   }
 
-  function drawArrows() {
-    if (!scene.arrows) return;
-    ctx.lineWidth = 2.2;
-    ctx.strokeStyle = C.arrow;
-    ctx.fillStyle = C.arrow;
-    for (var i = 0; i < scene.arrows.length; i++) {
-      var a = scene.arrows[i];
-      var s = toScreen(a.x1, a.y1), e = toScreen(a.x2, a.y2);
-      var dx = e[0] - s[0], dy = e[1] - s[1];
-      var len = Math.hypot(dx, dy);
-      if (len < 8 || len > 4000) continue;
-      // 살짝 휘게: 직선 화살표는 도로와 겹쳐 읽기 어렵다.
-      var mx = (s[0] + e[0]) / 2 - dy * 0.16, my = (s[1] + e[1]) / 2 + dx * 0.16;
+  /* 차단 구간. 도로 위에 가로로 놓인 줄무늬 바리케이드로 그린다.
+   * 색만 바꾸면 도로 상태와 구분이 안 되므로 형태를 준다. */
+  function drawBarriers(view) {
+    if (!scene.barriers || !scene.barriers.length) return;
+    for (var i = 0; i < scene.barriers.length; i++) {
+      var b = scene.barriers[i];
+      if (b.x < view.x0 || b.x > view.x1 || b.y < view.y0 || b.y > view.y1) continue;
+      var p = toScreen(b.x, b.y);
+      var w = Math.min(40, Math.max(18, 26 * cam.scale));
+      var h = Math.max(6, w * 0.28);
+
+      ctx.save();
+      ctx.translate(p[0], p[1]);
+      ctx.rotate(-b.a * Math.PI / 180);
+
+      // 경고 후광: 멀리서도 "여기 막혔다"가 먼저 읽혀야 한다.
+      var glow = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 1.5);
+      glow.addColorStop(0, "rgba(229,161,58,0.30)");
+      glow.addColorStop(1, "rgba(229,161,58,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(0, 0, w * 1.5, 0, Math.PI * 2); ctx.fill();
+
+      // 줄무늬 판
+      ctx.fillStyle = "#e5a13a";
+      roundRect(-w / 2, -h / 2, w, h, 2); ctx.fill();
+      ctx.strokeStyle = "#3a2a10"; ctx.lineWidth = 1;
+      roundRect(-w / 2, -h / 2, w, h, 2); ctx.stroke();
+      ctx.fillStyle = "#2b2110";
+      var stripes = Math.max(3, Math.round(w / 7));
+      for (var s = 0; s < stripes; s++) {
+        if (s % 2) continue;
+        ctx.fillRect(-w / 2 + (w / stripes) * s, -h / 2, w / stripes / 2, h);
+      }
+      // 받침 다리
+      ctx.strokeStyle = "#b8801f"; ctx.lineWidth = Math.max(1.5, h * 0.22);
       ctx.beginPath();
-      ctx.moveTo(s[0], s[1]);
-      ctx.quadraticCurveTo(mx, my, e[0], e[1]);
+      ctx.moveTo(-w * 0.3, h / 2); ctx.lineTo(-w * 0.3, h / 2 + h * 0.7);
+      ctx.moveTo(w * 0.3, h / 2); ctx.lineTo(w * 0.3, h / 2 + h * 0.7);
       ctx.stroke();
-      var ang = Math.atan2(e[1] - my, e[0] - mx);
-      ctx.beginPath();
-      ctx.moveTo(e[0], e[1]);
-      ctx.lineTo(e[0] - 11 * Math.cos(ang - 0.4), e[1] - 11 * Math.sin(ang - 0.4));
-      ctx.lineTo(e[0] - 11 * Math.cos(ang + 0.4), e[1] - 11 * Math.sin(ang + 0.4));
-      ctx.closePath(); ctx.fill();
-      if (cam.scale > 0.3 && a.o) {
-        ctx.fillStyle = "rgba(230,237,243,0.85)";
-        ctx.font = "600 11px ui-monospace, Consolas, monospace";
-        ctx.fillText(a.o, mx + 4, my - 4);
-        ctx.fillStyle = C.arrow;
+      ctx.restore();
+
+      if (cam.scale > 0.7) {
+        ctx.fillStyle = "rgba(229,161,58,0.9)";
+        ctx.font = "600 10px system-ui, 'Malgun Gothic', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("차단", p[0], p[1] - w * 0.8);
+        ctx.textAlign = "start";
       }
     }
   }
@@ -372,7 +392,8 @@
         if (scene.vehicles[i].k === "background") bg++;
         else if (scene.vehicles[i].k === "police") po++;
       }
-      lines.push("배경차량 " + bg + "대 · 경찰 " + po + "대 · 배율 " + cam.scale.toFixed(2) + "x");
+      var bar = (scene.barriers || []).length;
+      lines.push("배경차량 " + bg + "대 · 경찰 " + po + "대 · 차단 " + bar + "곳 · 배율 " + cam.scale.toFixed(2) + "x");
     }
     ctx.font = "12px system-ui, 'Malgun Gothic', sans-serif";
     var pad = 8, lh = 17;
@@ -387,7 +408,8 @@
     }
 
     // 범례
-    var legend = [["도주차량", C.fugitive], ["경찰차", C.police], ["일반차량", C.background]];
+    var legend = [["도주차량", C.fugitive], ["경찰차", C.police],
+                  ["일반차량", C.background], ["도로 차단", C.amber]];
     ctx.font = "12px system-ui, 'Malgun Gothic', sans-serif";
     var lw = 108;
     ctx.fillStyle = "rgba(10,13,16,0.72)";

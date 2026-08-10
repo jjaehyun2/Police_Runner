@@ -199,11 +199,22 @@ def scene_frame(
                 "x2": round(tx, 1), "y2": round(ty, 1),
             })
 
+    barriers = [
+        {
+            "edge": item.edge_id,
+            "x": round(item.x - ox, 1),
+            "y": round(item.y - oy, 1),
+            "a": round(item.angle_deg, 1),
+        }
+        for item in getattr(env, "barriers", ())
+    ]
+
     fugitive = next((item for item in vehicles if item["k"] == "fugitive"), None)
     return {
         "vehicles": vehicles,
         "signals": signals,
         "arrows": arrows,
+        "barriers": barriers,
         "focus": [fugitive["x"], fugitive["y"]] if fugitive else None,
         "background_shown": background_drawn,
     }

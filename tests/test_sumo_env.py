@@ -27,7 +27,11 @@ from pursuit_evasion_rl.sumo_env.net_builder import (  # noqa: E402
 from pursuit_evasion_rl.sumo_env.observations import (  # noqa: E402
     OBSERVATION_DIM, SumoObservationAdapter,
 )
+from pursuit_evasion_rl.sumo_env.barriers import (  # noqa: E402
+    BarrierConfig, choose_barriers, write_poi_additional,
+)
 from pursuit_evasion_rl.sumo_env.policies import EncirclementPolicy  # noqa: E402
+from pursuit_evasion_rl.sumo_env.scene import export_network, scene_frame  # noqa: E402
 from pursuit_evasion_rl.sumo_env.traffic import (  # noqa: E402
     TrafficConfig, dispersed_spawn_edges, usable_edges, write_background_routes,
 )
@@ -317,3 +321,102 @@ def test_policy_is_deterministic_for_a_fixed_seed(network) -> None:
         finally:
             env.close()
     assert outcomes[0] == outcomes[1]
+
+
+# ---------------------------------------------------------------------------
+# 도로 차단(바리케이드)
+# ---------------------------------------------------------------------------
+
+
+def test_barriers_are_deterministic_and_separated(network) -> None:
+    net = sumolib.net.readNet(str(network.net_path))
+    config = BarrierConfig(count=6, min_separation_m=300.0)
+    first = choose_barriers(net, config, seed=5)
+    second = choose_barriers(net, config, seed=5)
+    assert [item.edge_id for item in first] == [item.edge_id for item in second]
+    for index, a in enumerate(first):
+        for b in first[index + 1:]:
+            assert math.dist((a.x, a.y), (b.x, b.y)) >= config.min_separation_m
+
+
+def test_barriers_never_seal_off_a_dead_end(network) -> None:
+    """출구가 하나뿐인 도로를 막으면 그 너머 지역이 통째로 고립된다."""
+    net = sumolib.net.readNet(str(network.net_path))
+    for barrier in choose_barriers(net, BarrierConfig(count=10), seed=9):
+        assert len(net.getEdge(barrier.edge_id).getOutgoing()) >= 2
+
+
+def test_barriers_keep_their_distance_from_the_fugitive(network) -> None:
+    """시작하자마자 도주자가 막힌 길에 갇히면 그 에피소드는 정책을 평가하지 못한다."""
+    net = sumolib.net.readNet(str(network.net_path))
+    config = BarrierConfig(count=8, min_distance_from_fugitive_m=600.0)
+    origin = (1500.0, 1500.0)
+    for barrier in choose_barriers(net, config, seed=3, fugitive_xy=origin):
+        assert math.dist((barrier.x, barrier.y), origin) >= config.min_distance_from_fugitive_m
+
+
+def test_disabled_barriers_produce_none(network) -> None:
+    net = sumolib.net.readNet(str(network.net_path))
+    assert choose_barriers(net, BarrierConfig(enabled=False), seed=1) == ()
+    assert choose_barriers(net, BarrierConfig(count=0), seed=1) == ()
+
+
+def test_episode_installs_barriers_and_reports_them(network) -> None:
+    env = SumoPursuitEnv(
+        network, _config(barriers=BarrierConfig(count=5)),
+        work_dir=REPO_ROOT / "cache/sumo/runs",
+    )
+    try:
+        env.reset(seed=7)
+        assert len(env.barriers) > 0
+        assert len(env.barriers) <= 5
+    finally:
+        env.close()
+
+
+def test_barrier_poi_file_is_valid_xml(tmp_path, network) -> None:
+    import xml.etree.ElementTree as ET
+
+    net = sumolib.net.readNet(str(network.net_path))
+    barriers = choose_barriers(net, BarrierConfig(count=4), seed=11)
+    destination = tmp_path / "barriers.add.xml"
+    write_poi_additional(barriers, destination, image_file="icon.png")
+    root = ET.parse(destination).getroot()
+    assert root.tag == "additional"
+    pois = root.findall("poi")
+    assert len(pois) == len(barriers)
+    assert all(item.get("imgFile") == "icon.png" for item in pois)
+
+
+# ---------------------------------------------------------------------------
+# 시각화용 장면 내보내기
+# ---------------------------------------------------------------------------
+
+
+def test_scene_frame_carries_everything_the_renderer_draws(tmp_path, network) -> None:
+    env = SumoPursuitEnv(
+        network, _config(barriers=BarrierConfig(count=4)),
+        work_dir=REPO_ROOT / "cache/sumo/runs",
+    )
+    try:
+        env.reset(seed=7)
+        exported = export_network(env, tmp_path / "network.json")
+        assert exported["roads"] and exported["signals"]
+        frame = scene_frame(env, exported["origin"])
+        kinds = {item["k"] for item in frame["vehicles"]}
+        assert "fugitive" in kinds and "police" in kinds
+        assert frame["signals"]
+        assert len(frame["barriers"]) == len(env.barriers)
+        assert frame["focus"] is not None
+    finally:
+        env.close()
+
+
+def test_signal_colour_reports_the_dominant_phase() -> None:
+    """초록이 하나라도 있으면 초록으로 칠하면 도시의 모든 신호가 초록이 된다."""
+    from pursuit_evasion_rl.sumo_env.scene import _signal_colour
+
+    assert _signal_colour("rrrrrrrrGG") == "red"
+    assert _signal_colour("GGGGGGrrrr") == "green"
+    assert _signal_colour("yyyyrrrr") == "yellow"
+    assert _signal_colour("") == "off"
