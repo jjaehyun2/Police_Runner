@@ -1,4 +1,4 @@
-"""Dynamic-roads condition training for ONE seed (mentoring theme T1).
+"""Dynamic-roads + safety condition training for ONE seed (mentoring T1+T2).
 
 Same launch shape as ``run_seed_remediated.py`` but registers
 ``real_scale_daejeon_dynamic_v1``: the full S1/S2 remediation bundle PLUS
@@ -41,9 +41,10 @@ from pursuit_evasion_rl.research.training.trainer import TrainerConfig
 from pursuit_evasion_rl.research.variants.placement import PlacementCurriculumConfig, PlacementStyle
 from pursuit_evasion_rl.research.variants.remediation import remediated_trainer_kwargs
 from pursuit_evasion_rl.research.variants.road_dynamics import RoadDynamicsConfig
+from pursuit_evasion_rl.research.variants.safety import SafetyPenaltyConfig, wrap_step_reward_multi
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-CONDITION_ID = "real_scale_daejeon_dynamic_v1"
+CONDITION_ID = "real_scale_daejeon_dynamic_safety_v1"
 SCRATCH = Path(__file__).resolve().parent / "output"
 
 
@@ -120,6 +121,10 @@ def main() -> int:
     config = TrainerConfig(updates=35000, episodes_per_update=1, max_steps=450)
     dynamics = RoadDynamicsConfig(its_overlay=_its_overlay(train_network, log))
     bundle = remediated_trainer_kwargs(dynamics=dynamics)
+    # Mentoring T2: explicit safety terms layered over the remediated reward
+    # (risk-class traversal + herding), dispatched per network so validation
+    # rollouts score against their own graph.
+    bundle["step_reward_fn"] = wrap_step_reward_multi(bundle["step_reward_fn"], SafetyPenaltyConfig())
     spec = MainStudyConditionSpec(
         condition_id=CONDITION_ID,
         scenario=MapScenario.BOUNDARY_ESCAPE,
