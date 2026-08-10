@@ -142,7 +142,7 @@ def apply_barriers(connection: Any, barriers: Sequence[Barrier]) -> tuple[str, .
 
 
 def write_poi_additional(
-    barriers: Sequence[Barrier], destination, *, image_file: str | None = None, size: float = 18.0
+    barriers: Sequence[Barrier], destination, *, image_file: str | None = None, size: float = 55.0
 ) -> str:
     """SUMO-GUI 에서 차단 지점을 볼 수 있는 additional 파일을 쓴다.
 
@@ -165,7 +165,12 @@ def write_poi_additional(
                 f' angle="{-barrier.angle_deg:.1f}"/>'
             )
         else:
-            lines.append(f'  <poi {attrs} color="230,120,20" width="{size}" height="{size}"/>')
+            # imgFile 이 없을 때는 SUMO 가 색 사각형으로 그린다. 도시 전체를
+            # 볼 때도 눈에 띄도록 기본 크기보다 크게 잡는다.
+            lines.append(
+                f'  <poi {attrs} color="255,150,20" width="{size}" height="{size}"'
+                f' imgFile="" fill="1"/>'
+            )
     lines.append("</additional>")
     path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -20,8 +20,8 @@
     policeDark: "#1b4fa0",
     fugitive: "#e5484d",
     fugitiveDark: "#8f2226",
-    background: "#8892a0",
-    backgroundDark: "#5b6472",
+    background: "#9aa3ad",
+    backgroundDark: "#666f7a",
     glass: "rgba(220,240,255,0.75)",
     arrow: "rgba(61,139,253,0.75)",
     red: "#e5484d", yellow: "#e5a13a", green: "#3fbf6a", off: "#3a424c",
@@ -158,6 +158,7 @@
     } else {
       hint(w, h, "시뮬레이션 대기 중…");
     }
+    if (scene) drawBarrierPointers(w, h);
     drawHud(w, h);
   }
 
@@ -326,6 +327,48 @@
         ctx.fillText("차단", p[0], p[1] - w * 0.8);
         ctx.textAlign = "start";
       }
+    }
+  }
+
+  /* 화면 밖 차단은 가장자리에 방향 표시로 남긴다. 없으면 축소하기 전까지
+   * 차단이 존재하는지조차 알 수 없다(기본 시야 950m, 차단은 500m 밖 배치). */
+  function drawBarrierPointers(w, h) {
+    if (!scene.barriers || !scene.barriers.length) return;
+    var cx = w / 2, cy = h / 2, margin = 26;
+    for (var i = 0; i < scene.barriers.length; i++) {
+      var b = scene.barriers[i];
+      var p = toScreen(b.x, b.y);
+      if (p[0] >= 0 && p[0] <= w && p[1] >= 0 && p[1] <= h) continue;
+
+      var dx = p[0] - cx, dy = p[1] - cy;
+      var scale = Math.min(
+        (w / 2 - margin) / Math.max(1, Math.abs(dx)),
+        (h / 2 - margin) / Math.max(1, Math.abs(dy))
+      );
+      var ex = cx + dx * scale, ey = cy + dy * scale;
+      var ang = Math.atan2(dy, dx);
+      var metres = Math.round(Math.hypot(b.x - cam.x, b.y - cam.y));
+
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.translate(ex, ey);
+      ctx.rotate(ang);
+      ctx.fillStyle = C.amber;
+      ctx.beginPath();
+      ctx.moveTo(9, 0); ctx.lineTo(-6, -6); ctx.lineTo(-6, 6);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = C.amber;
+      ctx.font = "600 10px ui-monospace, Consolas, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        metres >= 1000 ? (metres / 1000).toFixed(1) + "km" : metres + "m",
+        ex - Math.cos(ang) * 15, ey - Math.sin(ang) * 15 + 3
+      );
+      ctx.textAlign = "start";
+      ctx.globalAlpha = 1;
     }
   }
 
