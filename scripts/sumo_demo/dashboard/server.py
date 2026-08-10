@@ -30,6 +30,15 @@ MAP_JS_PATH = BASE_DIR / "map.js"
 
 WAITING_STATE = {"status": "waiting"}
 
+#: 화면 코드는 개발 중 계속 바뀌는데 브라우저는 index.html/map.js 를 캐시한다.
+#: 그러면 기능을 추가해도 사용자 화면에는 옛 버전이 계속 뜨고, "구현이 안 된
+#: 것"과 구분이 되지 않는다. 로컬 데모 서버이므로 캐시를 끄는 편이 안전하다.
+NO_CACHE = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 app = FastAPI(title="관제실 대시보드")
 
 
@@ -40,21 +49,21 @@ def _read_json(path: Path, fallback: dict) -> JSONResponse:
     대시보드가 죽는 것보다 한 프레임 건너뛰는 편이 낫다.
     """
     if not path.exists():
-        return JSONResponse(fallback)
+        return JSONResponse(fallback, headers=NO_CACHE)
     try:
-        return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
+        return JSONResponse(json.loads(path.read_text(encoding="utf-8")), headers=NO_CACHE)
     except (OSError, json.JSONDecodeError):
-        return JSONResponse(fallback)
+        return JSONResponse(fallback, headers=NO_CACHE)
 
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(INDEX_PATH, media_type="text/html")
+    return FileResponse(INDEX_PATH, media_type="text/html", headers=NO_CACHE)
 
 
 @app.get("/map.js")
 def map_js() -> FileResponse:
-    return FileResponse(MAP_JS_PATH, media_type="application/javascript")
+    return FileResponse(MAP_JS_PATH, media_type="application/javascript", headers=NO_CACHE)
 
 
 @app.get("/api/state")
