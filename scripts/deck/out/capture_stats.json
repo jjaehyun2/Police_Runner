@@ -1,0 +1,414 @@
+{
+  "vs_lowest_legal_action": {
+    "per_seed": {
+      "0": {
+        "n_pairs": 500,
+        "n_seeds": 1,
+        "proposed_capture_rate": 0.756,
+        "proposed_capture_rate_ci95": {
+          "lower": 0.7164951931439073,
+          "upper": 0.791601144539778,
+          "confidence_level": 0.95,
+          "method": "wilson_score"
+        },
+        "baseline_capture_rate": 0.486,
+        "baseline_capture_rate_ci95": {
+          "lower": 0.4424649931129956,
+          "upper": 0.5297484884199279,
+          "confidence_level": 0.95,
+          "method": "wilson_score"
+        },
+        "risk_difference_proposed_minus_baseline": 0.27,
+        "risk_difference_ci95_proposed_minus_baseline": {
+          "lower": 0.22799999999999998,
+          "upper": 0.31200000000000006
+        },
+        "library_risk_difference_a_minus_b": -0.27,
+        "library_risk_difference_ci95_a_minus_b": {
+          "lower": -0.31200000000000006,
+          "upper": -0.22799999999999998,
+          "confidence_level": 0.95,
+          "method": "hierarchical_paired_bootstrap_percentile"
+        },
+        "table": {
+          "n11": 234,
+          "n10": 9,
+          "n01": 144,
+          "n00": 113
+        },
+        "p_value_raw": 1.8594180082240592e-32,
+        "gate": {
+          "statistically_significant": true,
+          "practically_significant": true,
+          "superiority": true,
+          "non_inferiority": false,
+          "reasons": [
+            "no non-inferiority margin was pre-registered",
+            "statistical significance and the practical threshold are both met"
+          ]
+        },
+        "source_file": "real_scale_seed0_outcome_FIXED.json",
+        "checkpoint": "/workspace/cluster/artifacts/research/checkpoints/real_scale_daejeon_main_study/0/20260802T195025-1dcb72a33168/best_validation.pt",
+        "n_episodes_reported": 500
+      },
+      "1": {
+        "n_pairs": 500,
+        "n_seeds": 1,
+        "proposed_capture_rate": 0.784,
+        "proposed_capture_rate_ci95": {
+          "lower": 0.7458371194720326,
+          "upper": 0.8178322551458059,
+          "confidence_level": 0.95,
+          "method": "wilson_score"
+        },
+        "baseline_capture_rate": 0.45,
+        "baseline_capture_rate_ci95": {
+          "lower": 0.40693965178133173,
+          "upper": 0.49382278226482357,
+          "confidence_level": 0.95,
+          "method": "wilson_score"
+        },
+        "risk_difference_proposed_minus_baseline": 0.334,
+        "risk_difference_ci95_proposed_minus_baseline": {
+          "lower": 0.29000000000000004,
+          "upper": 0.378
+        },
+        "library_risk_difference_a_minus_b": -0.334,
+        "library_risk_difference_ci95_a_minus_b": {
+          "lower": -0.378,
+          "upper": -0.29000000000000004,
+          "confidence_level": 0.95,
+          "method": "hierarchical_paired_bootstrap_percentile"
+        },
+        "table": {
+          "n11": 217,
+          "n10": 8,
+          "n01": 175,
+          "n00": 100
+        },
+        "p_value_raw": 4.5638347476820235e-42,
+        "gate": {
+          "statistically_significant": true,
+          "practically_significant": true,
+          "superiority": true,
+          "non_inferiority": false,
+          "reasons": [
+            "no non-inferiority margin was pre-registered",
+            "statistical significance and the practical threshold are both met"
+          ]
+        },
+        "source_file": "real_scale_seed1_outcome_FIXED.json",
+        "checkpoint": "/workspace/cluster/artifacts/research/checkpoints/real_scale_daejeon_main_study/1/20260802T195029-50d97274c5f2/best_validation.pt",
+        "n_episodes_reported": 500
+      },
+      "4": {
+        "n_pairs": 500,
+        "n_seeds": 1,
+        "proposed_capture_rate": 0.77,
+        "proposed_capture_rate_ci95": {
+          "lower": 0.7311377813252322,
+          "upper": 0.8047450748255296,
+          "confidence_level": 0.95,
+          "method": "wilson_score"
+        },
+        "baseline_capture_rate": 0.472,
+        "baseline_capture_rate_ci95": {
+          "lower": 0.42862273473006285,
+          "upper": 0.5158042283357841,
+          "confidence_level": 0.95,
+          "method": "wilson_score"
+        },
+        "risk_difference_proposed_minus_baseline": 0.298,
+        "risk_difference_ci95_proposed_minus_baseline": {
+          "lower": 0.254,
+          "upper": 0.342
+        },
+        "library_risk_difference_a_minus_b": -0.298,
+        "library_risk_difference_ci95_a_minus_b": {
+          "lower": -0.342,
+          "upper": -0.254,
+          "confidence_level": 0.95,
+          "method": "hierarchical_paired_bootstrap_percentile"
+        },
+        "table": {
+          "n11": 225,
+          "n10": 11,
+          "n01": 160,
+          "n00": 104
+        },
+        "p_value_raw": 4.726935179641606e-35,
+        "gate": {
+          "statistically_significant": true,
+          "practically_significant": true,
+          "superiority": true,
+          "non_inferiority": false,
+          "reasons": [
+            "no non-inferiority margin was pre-registered",
+            "statistical significance and the practical threshold are both met"
+          ]
+        },
+        "source_file": "real_scale_seed4_outcome_FIXED.json",
+        "checkpoint": "/workspace/cluster/artifacts/research/checkpoints/real_scale_daejeon_main_study/4/20260802T195032-9ae88320f213/best_validation.pt",
+        "n_episodes_reported": 500
+      }
+    },
+    "pooled": {
+      "n_pairs": 1500,
+      "n_seeds": 3,
+      "proposed_capture_rate": 0.77,
+      "proposed_capture_rate_ci95": {
+        "lower": 0.7480296702205553,
+        "upper": 0.7905909371905466,
+        "confidence_level": 0.95,
+        "method": "wilson_score"
+      },
+      "baseline_capture_rate": 0.4693333333333333,
+      "baseline_capture_rate_ci95": {
+        "lower": 0.4441884355466058,
+        "upper": 0.4946349028708986,
+        "confidence_level": 0.95,
+        "method": "wilson_score"
+      },
+      "risk_difference_proposed_minus_baseline": 0.3006666666666667,
+      "risk_difference_ci95_proposed_minus_baseline": {
+        "lower": 0.262,
+        "upper": 0.3406666666666666
+      },
+      "library_risk_difference_a_minus_b": -0.3006666666666667,
+      "library_risk_difference_ci95_a_minus_b": {
+        "lower": -0.3406666666666666,
+        "upper": -0.262,
+        "confidence_level": 0.95,
+        "method": "hierarchical_paired_bootstrap_percentile"
+      },
+      "table": {
+        "n11": 676,
+        "n10": 28,
+        "n01": 479,
+        "n00": 317
+      },
+      "p_value_raw": 4.276935054729914e-107,
+      "gate": {
+        "statistically_significant": true,
+        "practically_significant": true,
+        "superiority": true,
+        "non_inferiority": false,
+        "reasons": [
+          "no non-inferiority margin was pre-registered",
+          "statistical significance and the practical threshold are both met"
+        ]
+      },
+      "source_files": [
+        "real_scale_seed0_outcome_FIXED.json",
+        "real_scale_seed1_outcome_FIXED.json",
+        "real_scale_seed4_outcome_FIXED.json"
+      ],
+      "seeds": [
+        0,
+        1,
+        4
+      ]
+    },
+    "provenance": {
+      "outcome_a": "lowest-legal-action baseline",
+      "outcome_b": "proposed MAPPO policy",
+      "n_per_seed": 500,
+      "seeds": [
+        0,
+        1,
+        4
+      ],
+      "caveat": "These paired cases (the _FIXED files) predate the placement fix that also produced the smart_baseline_eval_seed*.json files under vs_smart_baselines. Do not mix the two families -- see that key's own provenance note."
+    }
+  },
+  "vs_smart_baselines": {
+    "per_seed": {
+      "0": {
+        "checkpoint": "artifacts/research/checkpoints/real_scale_daejeon_main_study/0/20260802T195025-1dcb72a33168/best_validation.pt",
+        "checkpoint_update_index": 35000,
+        "network": "daejeon-validation-v1 (real, live-fetched)",
+        "episodes_per_baseline": 500,
+        "results": {
+          "directed_shortest_path": {
+            "baseline_capture_rate": 0.884,
+            "n_pairs": 500,
+            "proposed_capture_rate": 0.812,
+            "risk_difference": -0.072,
+            "risk_difference_ci95": [
+              -0.10399999999999998,
+              -0.040000000000000036
+            ],
+            "table": {
+              "n00": 40,
+              "n01": 54,
+              "n10": 18,
+              "n11": 388
+            },
+            "wall_seconds": 844.0023853778839,
+            "proposed_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.775422375686958,
+              "upper": 0.8438200358650336
+            },
+            "baseline_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.8529581630365658,
+              "upper": 0.9091863434889621
+            }
+          },
+          "greedy_intercept": {
+            "baseline_capture_rate": 0.934,
+            "n_pairs": 500,
+            "proposed_capture_rate": 0.812,
+            "risk_difference": -0.122,
+            "risk_difference_ci95": [
+              -0.15200000000000002,
+              -0.09200000000000008
+            ],
+            "table": {
+              "n00": 32,
+              "n01": 62,
+              "n10": 1,
+              "n11": 405
+            },
+            "wall_seconds": 771.3152196407318,
+            "proposed_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.775422375686958,
+              "upper": 0.8438200358650336
+            },
+            "baseline_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.9087605988391466,
+              "upper": 0.9526214736402262
+            }
+          }
+        },
+        "source_file": "smart_baseline_eval_seed0.json"
+      },
+      "1": {
+        "checkpoint": "artifacts/research/checkpoints/real_scale_daejeon_main_study/1/20260802T195029-50d97274c5f2/best_validation.pt",
+        "checkpoint_update_index": 35000,
+        "network": "daejeon-validation-v1 (real, live-fetched)",
+        "episodes_per_baseline": 500,
+        "results": {
+          "directed_shortest_path": {
+            "baseline_capture_rate": 0.874,
+            "n_pairs": 500,
+            "proposed_capture_rate": 0.804,
+            "risk_difference": -0.07,
+            "risk_difference_ci95": [
+              -0.10199999999999998,
+              -0.040000000000000036
+            ],
+            "table": {
+              "n00": 48,
+              "n01": 50,
+              "n10": 15,
+              "n11": 387
+            },
+            "wall_seconds": 846.1206851005554,
+            "proposed_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.7669425076136408,
+              "upper": 0.8364218933857356
+            },
+            "baseline_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.8420322822801359,
+              "upper": 0.900264711054623
+            }
+          },
+          "greedy_intercept": {
+            "baseline_capture_rate": 0.942,
+            "n_pairs": 500,
+            "proposed_capture_rate": 0.804,
+            "risk_difference": -0.138,
+            "risk_difference_ci95": [
+              -0.16800000000000004,
+              -0.1080000000000001
+            ],
+            "table": {
+              "n00": 29,
+              "n01": 69,
+              "n10": 0,
+              "n11": 402
+            },
+            "wall_seconds": 806.1537916660309,
+            "proposed_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.7669425076136408,
+              "upper": 0.8364218933857356
+            },
+            "baseline_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.917943812143745,
+              "upper": 0.9593162708882429
+            }
+          }
+        },
+        "source_file": "smart_baseline_eval_seed1.json"
+      },
+      "4": {
+        "checkpoint": "artifacts/research/checkpoints/real_scale_daejeon_main_study/4/20260802T195032-9ae88320f213/best_validation.pt",
+        "checkpoint_update_index": 35000,
+        "network": "daejeon-validation-v1 (real, live-fetched)",
+        "episodes_per_baseline": 500,
+        "results": {
+          "directed_shortest_path": {
+            "baseline_capture_rate": 0.852,
+            "n_pairs": 500,
+            "proposed_capture_rate": 0.764,
+            "risk_difference": -0.088,
+            "risk_difference_ci95": [
+              -0.124,
+              -0.052000000000000046
+            ],
+            "table": {
+              "n00": 54,
+              "n01": 64,
+              "n10": 20,
+              "n11": 362
+            },
+            "wall_seconds": 934.155731678009,
+            "proposed_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.7248556437078593,
+              "upper": 0.7991187045284411
+            },
+            "baseline_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.8181938697042727,
+              "upper": 0.8804385946107945
+            }
+          },
+          "greedy_intercept": {
+            "baseline_capture_rate": 0.938,
+            "n_pairs": 500,
+            "proposed_capture_rate": 0.764,
+            "risk_difference": -0.174,
+            "risk_difference_ci95": [
+              -0.20600000000000007,
+              -0.1419999999999999
+            ],
+            "table": {
+              "n00": 31,
+              "n01": 87,
+              "n10": 0,
+              "n11": 382
+            },
+            "wall_seconds": 881.9802937507629,
+            "proposed_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.7248556437078593,
+              "upper": 0.7991187045284411
+            },
+            "baseline_capture_rate_ci95_wilson_marginal": {
+              "lower": 0.9133402868983618,
+              "upper": 0.9559807908573184
+            }
+          }
+        },
+        "source_file": "smart_baseline_eval_seed4.json"
+      }
+    },
+    "provenance": {
+      "baselines": [
+        "greedy_intercept",
+        "directed_shortest_path"
+      ],
+      "vintage": "post-placement-fix (later than the vs_lowest_legal_action _FIXED cases)",
+      "poolable": false,
+      "caveat": "Summary-only: no per-case PairedCase records survive in these files, so compare_paired_binary cannot be re-run on them here. Numbers below are the risk_difference / CI / table already computed by that eval run and are copied through verbatim, per seed. Never pool across seeds or mix with vs_lowest_legal_action -- different baselines, different eval vintage."
+    }
+  }
+}

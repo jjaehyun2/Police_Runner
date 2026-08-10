@@ -243,7 +243,7 @@ def test_not_measured_latency_stores_minus_one_and_status():
     summary = not_measured_latency(device="cpu", warmup_count=3)
     assert summary["status"] == LATENCY_NOT_MEASURED
     assert summary["count"] == 0
-    for key in ("mean_ms", "median_ms", "p95_ms", "max_ms"):
+    for key in ("mean_ms", "median_ms", "p95_ms", "p99_ms", "max_ms"):
         assert summary[key] == NOT_MEASURED_VALUE_MS
     assert summary["warmup_count"] == 3
 

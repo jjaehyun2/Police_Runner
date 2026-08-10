@@ -40,6 +40,12 @@ DEFAULT_MODEL_PATH = os.environ.get(
 )
 DEFAULT_NUM_POLICE = int(os.environ.get("PURSUIT_NUM_POLICE", "4"))
 DEFAULT_MAX_DEGREE = int(os.environ.get("PURSUIT_MAX_DEGREE", "5"))
+_HIDDEN_DIMS_RAW = os.environ.get("PURSUIT_HIDDEN_DIMS")
+DEFAULT_HIDDEN_DIMS = (
+    [int(part) for part in _HIDDEN_DIMS_RAW.split(",") if part.strip()]
+    if _HIDDEN_DIMS_RAW
+    else None
+)
 
 # 전역 엔진 및 네트워크 저장소
 _engine: Optional[PursuitInferenceEngine] = None
@@ -59,11 +65,14 @@ def _get_engine() -> PursuitInferenceEngine:
                 f"PURSUIT_MODEL_PATH 환경 변수를 설정하거나 "
                 f"checkpoints/road_pursuit/road_pursuit_final.pt 에 모델을 배치하세요.",
             )
-        _engine = PursuitInferenceEngine(
+        engine_kwargs = dict(
             model_path=model_path,
             num_police=DEFAULT_NUM_POLICE,
             fixed_max_degree=DEFAULT_MAX_DEGREE,
         )
+        if DEFAULT_HIDDEN_DIMS is not None:
+            engine_kwargs["hidden_dims"] = DEFAULT_HIDDEN_DIMS
+        _engine = PursuitInferenceEngine(**engine_kwargs)
     return _engine
 
 
