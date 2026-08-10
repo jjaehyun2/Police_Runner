@@ -1,0 +1,12 @@
+{
+  "python.defaultInterpreterPath": "C:\\Users\\dmsak\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"],
+  "python.analysis.extraPaths": ["."],
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "cache/sumo": true
+  },
+  "files.associations": { "*.rou.xml": "xml", "*.net.xml": "xml" }
+}
