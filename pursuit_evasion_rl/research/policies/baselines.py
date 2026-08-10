@@ -207,15 +207,20 @@ def make_interior_network(network: ModelNetwork) -> ModelNetwork:
 class _Graph:
     """방향 그래프 거리(양방향) 캐시. 네트워크 불변 → 시드 간 재사용."""
 
-    def __init__(self, network: ModelNetwork) -> None:
+    def __init__(self, network: ModelNetwork, weight=None) -> None:
+        """``weight`` maps a Segment to its edge cost (default: length_m in
+        meters).  A travel-time weight (seconds) turns every cached distance
+        into a travel time without touching the dijkstra itself."""
         self.network = network
         self.pos = {i.id: i.position_xy for i in network.intersections}
         self.seg = {s.id: s for s in network.segments}
+        edge_cost = weight if weight is not None else (lambda s: float(s.length_m))
         self.fwd: dict[int, list[tuple[int, float]]] = {i.id: [] for i in network.intersections}
         self.rev: dict[int, list[tuple[int, float]]] = {i.id: [] for i in network.intersections}
         for s in network.segments:
-            self.fwd[s.start_id].append((s.end_id, float(s.length_m)))
-            self.rev[s.end_id].append((s.start_id, float(s.length_m)))
+            cost = float(edge_cost(s))
+            self.fwd[s.start_id].append((s.end_id, cost))
+            self.rev[s.end_id].append((s.start_id, cost))
         self._to: dict[int, dict[int, float]] = {}
         self._from: dict[int, dict[int, float]] = {}
         self._nodes = list(self.pos)

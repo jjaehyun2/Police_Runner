@@ -27,6 +27,7 @@ from pursuit_evasion_rl.research.policies.masked_mappo import (
 from pursuit_evasion_rl.research.smdp import AsyncDecisionTransitionBuffer, DecisionEpoch, DecisionTransition
 from pursuit_evasion_rl.research.variants.observations import OBSERVATION_28D_DIM, Observation28DAdapter
 from pursuit_evasion_rl.research.variants.placement import PlacementCurriculumConfig, generate_placement
+from pursuit_evasion_rl.research.variants.road_dynamics import RoadDynamicsConfig, sample_segment_speeds
 from pursuit_evasion_rl.research.variants.rewards import RewardComponentSet, total_rewards
 from pursuit_evasion_rl.research.variants.stabilization import StabilizationCondition, u_turn_penalties
 
@@ -173,6 +174,7 @@ class ResearchTrainer:
         step_reward_fn: Callable[[ModelNetwork, Any, Any, bool], Sequence[float]] | None = None,
         timeout_bootstrap: bool = False,
         arrival_decisions: bool = False,
+        road_dynamics_config: RoadDynamicsConfig | None = None,
     ) -> None:
         if not isinstance(tuning_data, TuningDataView):
             raise ResearchValidationError("INVALID_TUNING_VIEW", "trainer requires a leakage-safe TuningDataView")
@@ -235,6 +237,11 @@ class ResearchTrainer:
         self._step_reward_fn = step_reward_fn
         self._timeout_bootstrap = bool(timeout_bootstrap)
         self._arrival_decisions = bool(arrival_decisions)
+        # Road-dynamics axis (None = prior behavior): per-episode segment
+        # speeds sampled deterministically from the episode seed, fed to the
+        # env as a side-car reset option and to the reward via its
+        # ``on_episode`` hook so both see the same traffic reality.
+        self._road_dynamics_config = road_dynamics_config
         critic_dim = self._observation_dim * POLICE_COUNT
         torch.manual_seed(self.training_seed)
         self.policy = policy or ResearchMaskedMAPPO(
@@ -394,14 +401,24 @@ class ResearchTrainer:
         return provider
 
     def _reset_episode(self, env: OSMRoadPursuitEnv, network: ModelNetwork, *, seed: int) -> None:
-        if self._placement_config is None:
+        # Every option is drawn deterministically from ``seed`` so two runs of
+        # the same (condition, seed, episode) reproduce identical initial
+        # states; omitting every axis reproduces the exact prior reset call.
+        options: dict[str, Any] = {}
+        if self._road_dynamics_config is not None:
+            speeds = sample_segment_speeds(network, self._road_dynamics_config, seed=seed)
+            options["segment_speeds"] = speeds
+            hook = getattr(self._step_reward_fn, "on_episode", None)
+            if callable(hook):
+                hook(network, speeds)
+        if self._placement_config is not None:
+            draw = generate_placement(network, _dataclass_replace(self._placement_config, placement_seed=seed))
+            options["police"] = list(draw.police)
+            options["fugitive"] = draw.fugitive
+        if options:
+            env.reset(seed=seed, options=options)
+        else:
             env.reset(seed=seed)
-            return
-        # Each episode draws its own placement, deterministically from ``seed``,
-        # so two runs of the same (condition, seed, episode) still reproduce
-        # identical initial states under a placement-ablation Condition.
-        draw = generate_placement(network, _dataclass_replace(self._placement_config, placement_seed=seed))
-        env.reset(seed=seed, options={"police": list(draw.police), "fugitive": draw.fugitive})
 
     def _rollout(self, network: ModelNetwork, *, seed: int, generator: torch.Generator) -> EpisodeRollout:
         env = OSMRoadPursuitEnv(network, self.episode_config)

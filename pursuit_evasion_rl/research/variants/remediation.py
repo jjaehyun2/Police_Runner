@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from pursuit_evasion_rl.osm_demo.metrics import placement_position
 from pursuit_evasion_rl.osm_demo.models import ModelNetwork, POLICE_COUNT
@@ -37,6 +37,11 @@ from pursuit_evasion_rl.research.policies.baselines import _Graph
 from pursuit_evasion_rl.research.variants.rewards import (
     RewardComponentSet,
     symmetric_retreat_components,
+)
+from pursuit_evasion_rl.research.variants.road_dynamics import (
+    RoadDynamicsConfig,
+    effective_speed_mps,
+    travel_time_weight,
 )
 from pursuit_evasion_rl.research.variants.stabilization import StabilizationCondition
 
@@ -80,9 +85,31 @@ class RoadDistance:
     jumping to a sentinel).
     """
 
-    def __init__(self, network: ModelNetwork, graph: _Graph | None = None) -> None:
+    def __init__(
+        self,
+        network: ModelNetwork,
+        graph: _Graph | None = None,
+        *,
+        segment_speeds: Mapping[int, float] | None = None,
+        speed_cap_mps: float = 16.0,
+    ) -> None:
         self.network = network
-        self.graph = graph or _Graph(network)
+        self.segment_speeds = dict(segment_speeds) if segment_speeds is not None else None
+        self.speed_cap_mps = float(speed_cap_mps)
+        if self.segment_speeds is None:
+            self.graph = graph or _Graph(network)
+        else:
+            # Road-dynamics arm: every value this instance returns is SECONDS
+            # of police travel time instead of meters.
+            self.graph = _Graph(
+                network, weight=travel_time_weight(self.segment_speeds, cap_mps=self.speed_cap_mps)
+            )
+
+    def _arc_cost(self, segment_id: int, metres: float) -> float:
+        if self.segment_speeds is None:
+            return metres
+        segment = self.graph.seg[segment_id]
+        return metres / effective_speed_mps(segment, self.segment_speeds, cap_mps=self.speed_cap_mps)
 
     def between(self, source_placement: Any, target_placement: Any) -> float:
         graph = self.graph
@@ -94,17 +121,28 @@ class RoadDistance:
         ):
             segment = graph.seg[source_placement.segment_id]
             gap = float(target_placement.progress) - float(source_placement.progress)
-            return gap * float(segment.length_m)
-        source_node, source_offset = _placement_source(graph, source_placement)
-        target_node, target_offset = _placement_target(graph, target_placement)
+            return self._arc_cost(segment.id, gap * float(segment.length_m))
+        source_node, source_offset_m = _placement_source(graph, source_placement)
+        target_node, target_offset_m = _placement_target(graph, target_placement)
+        source_offset = (
+            self._arc_cost(source_placement.segment_id, source_offset_m)
+            if source_placement.segment_id is not None
+            else 0.0
+        )
+        target_offset = (
+            self._arc_cost(target_placement.segment_id, target_offset_m)
+            if target_placement.segment_id is not None
+            else 0.0
+        )
         network_distance = graph.dist_to(target_node).get(source_node)
         if network_distance is None:
-            return float(
+            fallback_m = float(
                 math.dist(
                     placement_position(self.network, source_placement),
                     placement_position(self.network, target_placement),
                 )
             )
+            return fallback_m if self.segment_speeds is None else fallback_m / self.speed_cap_mps
         return source_offset + float(network_distance) + target_offset
 
 
@@ -119,6 +157,10 @@ class RemediatedStepReward:
     components: RewardComponentSet = field(default_factory=symmetric_retreat_components)
     noncapturer_capture_share: float = NONCAPTURER_CAPTURE_SHARE
     max_abs_delta_m: float = MAX_ABS_DELTA_M
+    # Road-dynamics arm (mentoring T1): when set, distances are measured in
+    # police TRAVEL TIME over per-episode segment speeds (see on_episode),
+    # so congestion and narrow roads shape the reward automatically.
+    dynamics: RoadDynamicsConfig | None = None
 
     def __post_init__(self) -> None:
         share = float(self.noncapturer_capture_share)
@@ -129,22 +171,52 @@ class RemediatedStepReward:
                 actual=share,
             )
         self._distances: dict[int, RoadDistance] = {}
+        self._episode_speeds: dict[int, float] | None = None
+
+    def on_episode(self, network: ModelNetwork, segment_speeds: Mapping[int, float]) -> None:
+        """Trainer hook (road-dynamics arm): adopt this episode's side-car speeds.
+
+        Called by ``ResearchTrainer._reset_episode`` with exactly the map it
+        also passes to ``env.reset``, so motion and reward share one reality.
+        """
+        self._episode_speeds = dict(segment_speeds)
+        self._distances.pop(id(network), None)
+
+    @property
+    def delta_scale(self) -> float:
+        """Reward normalization scale in the active distance unit."""
+        if self.dynamics is None:
+            return self.components.distance_scale_m
+        return self.components.distance_scale_m / self.dynamics.police_speed_cap_mps
+
+    @property
+    def delta_clamp(self) -> float:
+        if self.dynamics is None:
+            return self.max_abs_delta_m
+        return self.max_abs_delta_m / self.dynamics.police_speed_cap_mps
 
     def _road(self, network: ModelNetwork) -> RoadDistance:
         cached = self._distances.get(id(network))
         if cached is None:
-            cached = RoadDistance(network)
+            if self.dynamics is None:
+                cached = RoadDistance(network)
+            else:
+                cached = RoadDistance(
+                    network,
+                    segment_speeds=self._episode_speeds or {},
+                    speed_cap_mps=self.dynamics.police_speed_cap_mps,
+                )
             self._distances[id(network)] = cached
         return cached
 
     def _clamped_delta(self, before_m: float, after_m: float) -> float:
         raw = before_m - after_m
-        return max(-self.max_abs_delta_m, min(self.max_abs_delta_m, raw))
+        return max(-self.delta_clamp, min(self.delta_clamp, raw))
 
     def __call__(self, network: ModelNetwork, before: Any, after: Any, captured: bool) -> tuple[float, ...]:
         road = self._road(network)
         c = self.components
-        scale = c.distance_scale_m
+        scale = self.delta_scale
         # C: own endpoints share the post-step fugitive position.
         own_before = [road.between(placement, after.fugitive) for placement in before.police]
         own_after = [road.between(placement, after.fugitive) for placement in after.police]
@@ -180,19 +252,29 @@ def remediated_trainer_kwargs(
     *,
     components: RewardComponentSet | None = None,
     noncapturer_capture_share: float = NONCAPTURER_CAPTURE_SHARE,
+    dynamics: RoadDynamicsConfig | None = None,
 ) -> dict[str, Any]:
-    """The full remediation bundle as ``ResearchTrainer`` keyword arguments."""
+    """The full remediation bundle as ``ResearchTrainer`` keyword arguments.
+
+    ``dynamics`` upgrades the bundle to the road-dynamics arm (mentoring T1):
+    per-episode segment speeds drive BOTH the environment motion (side-car
+    ``segment_speeds`` reset option) and the reward's travel-time distances.
+    """
     reward_components = components or symmetric_retreat_components()
-    return {
+    kwargs: dict[str, Any] = {
         "reward_components": reward_components,
         "step_reward_fn": RemediatedStepReward(
             components=reward_components,
             noncapturer_capture_share=noncapturer_capture_share,
+            dynamics=dynamics,
         ),
         "stabilization_condition": remediated_stabilization(),
         "timeout_bootstrap": True,
         "arrival_decisions": True,
     }
+    if dynamics is not None:
+        kwargs["road_dynamics_config"] = dynamics
+    return kwargs
 
 
 __all__ = (

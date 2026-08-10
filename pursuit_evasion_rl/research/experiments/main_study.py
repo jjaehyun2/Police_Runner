@@ -217,6 +217,7 @@ class MainStudyConditionSpec:
     step_reward_fn: object | None = None
     timeout_bootstrap: bool = False
     arrival_decisions: bool = False
+    road_dynamics_config: object | None = None
     # Defaults to the synthetic-fixture label every prior caller relied on;
     # callers backing conditions with a real ActualOSMSpec network must pass
     # DataKind.ACTUAL_OSM_MAP explicitly so episode provenance stays truthful.
@@ -314,7 +315,7 @@ def train_and_evaluate_seed(
             observation_adapter_factory=spec.observation_adapter_factory,
             placement_config=spec.placement_config, stabilization_condition=spec.stabilization_condition,
             step_reward_fn=spec.step_reward_fn, timeout_bootstrap=spec.timeout_bootstrap,
-            arrival_decisions=spec.arrival_decisions,
+            arrival_decisions=spec.arrival_decisions, road_dynamics_config=spec.road_dynamics_config,
         )
         result: TrainingResult = trainer.train(progress_callback=progress_callback)
         selected = load_frozen_policy(result.checkpoint_path, policy_id=f"{spec.condition_id}-seed{seed}")

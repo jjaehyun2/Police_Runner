@@ -148,6 +148,12 @@ class OSMRoadPursuitEnv(gymnasium.Env):
         self._geometry_length: dict[int, float] = {
             item.id: _geometry_length(item.geometry_xy) for item in network.segments
         }
+        # Per-episode effective speed cap per segment (m/s), supplied via
+        # ``reset(options={"segment_speeds": {...}})``.  Empty (the default)
+        # reproduces prior behavior exactly: every vehicle moves at its own
+        # constant speed.  Kept OUTSIDE the network model on purpose -- the
+        # sealed ModelNetwork and its content hash must never vary per episode.
+        self._segment_speed: dict[int, float] = {}
         virtual_intersections = sum(1 for item in network.intersections if item.virtual)
         # A vehicle can never legally revisit an intersection within a single
         # zero-time routing chain, so bounding hops by the virtual node count
@@ -184,6 +190,17 @@ class OSMRoadPursuitEnv(gymnasium.Env):
         self._terminal_priority = None
 
         options = dict(options or {})
+        raw_speeds = options.get("segment_speeds")
+        self._segment_speed = {}
+        if raw_speeds is not None:
+            for key, value in dict(raw_speeds).items():
+                speed = float(value)
+                if int(key) not in self._segments or not math.isfinite(speed) or speed <= 0.0:
+                    raise DomainValidationError(
+                        "INVALID_SEGMENT_SPEED",
+                        "segment_speeds must map known segment ids to positive finite m/s",
+                    )
+                self._segment_speed[int(key)] = speed
         police_placements = options.get("police")
         fugitive_placement = options.get("fugitive")
         if (police_placements is None) != (fugitive_placement is None):
@@ -342,7 +359,9 @@ class OSMRoadPursuitEnv(gymnasium.Env):
             return False
         segment = self._segments[vehicle.segment_id]
         geometry_length = self._geometry_length[vehicle.segment_id]
-        distance = vehicle.speed * self.config.dt_s
+        speed_cap = self._segment_speed.get(vehicle.segment_id)
+        effective_speed = vehicle.speed if speed_cap is None else min(vehicle.speed, speed_cap)
+        distance = effective_speed * self.config.dt_s
         if geometry_length <= 0.0:
             new_progress = 1.0
         else:
