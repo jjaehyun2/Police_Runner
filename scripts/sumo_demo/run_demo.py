@@ -48,6 +48,32 @@ ACTION_LABEL = {True: "이동", False: "대기"}
 BLOCK_RADIUS_M = 80.0
 
 
+def _publish(path: Path, payload: str, attempts: int = 6) -> None:
+    """Replace a published file as atomically as Windows allows.
+
+    POSIX lets you rename over an open file; Windows refuses with
+    PermissionError while the dashboard has the target open for reading.
+    With the runner writing every frame and the dashboard polling twice a
+    second, that collision is routine rather than exceptional, so retry
+    briefly and then fall back to writing in place.  A torn read is
+    recoverable -- the dashboard already treats invalid JSON as "no update
+    this frame" -- but a crashed episode is not.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(payload, encoding="utf-8")
+    for attempt in range(attempts):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            time.sleep(0.02 * (attempt + 1))
+    try:
+        path.write_text(payload, encoding="utf-8")
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _elapsed(seconds: float) -> str:
     return "%02d:%02d" % (int(seconds) // 60, int(seconds) % 60)
 
@@ -130,13 +156,8 @@ def _write_state(env, state, latencies, tick_s, events, scene=None) -> None:
         # The map view is written separately: it changes every frame and is an
         # order of magnitude larger than the panel data, so a dashboard that
         # only wants the numbers never has to download it.
-        temporary_scene = SCENE_PATH.with_suffix(".json.tmp")
-        temporary_scene.write_text(json.dumps(scene, separators=(",", ":")), encoding="utf-8")
-        temporary_scene.replace(SCENE_PATH)
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    temporary = STATE_PATH.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(STATE_PATH)
+        _publish(SCENE_PATH, json.dumps(scene, separators=(",", ":")))
+    _publish(STATE_PATH, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def run_episode(env, seed, *, live, realtime_s, quiet=False):
