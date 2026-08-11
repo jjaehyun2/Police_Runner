@@ -1,6 +1,9 @@
 """재설계 도로 환경 시각화 (탈출구 축소 + 막다른 길)."""
+from pathlib import Path as _ImgPath
+_IMAGE_DIR = _ImgPath(__file__).resolve().parents[1] / "docs" / "images"
 import sys
-sys.path.insert(0, ".")
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import warnings; warnings.filterwarnings("ignore")
 import logging; logging.disable(logging.WARNING)
 
@@ -58,5 +61,5 @@ existing_handles = viz.ax.get_legend().legend_handles
 viz.ax.legend(handles=existing_handles + extra_legend, loc="upper right", fontsize=9)
 
 viz.fig.tight_layout()
-viz.save("road_pursuit_with_deadends.png", dpi=150, bbox_inches="tight")
-print("\n저장 완료: road_pursuit_with_deadends.png")
+viz.save(str(_IMAGE_DIR / "road_pursuit_with_deadends.png"), dpi=150, bbox_inches="tight")
+print(f"\n저장 완료: {_IMAGE_DIR / 'road_pursuit_with_deadends.png'}")

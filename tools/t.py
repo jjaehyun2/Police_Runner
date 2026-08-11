@@ -9,6 +9,8 @@ Gemini 생성 가상 지도 대신 실제 OpenStreetMap 대전 둔산동 도로�
     python make_osm_figure.py
 출력: osm_daejeon_pursuit.png
 """
+from pathlib import Path as _ImgPath
+_IMAGE_DIR = _ImgPath(__file__).resolve().parents[1] / "docs" / "images"
 import osmnx as ox
 import networkx as nx
 import matplotlib
@@ -63,5 +65,5 @@ fp = fm.FontProperties(family="Malgun Gothic")
 ax.set_title("실제 대전 둔산동 OSM 도로망 — 엔진 추천 차단 지점·이동 경로 (osm_loader 실데이터)",
              fontproperties=fp, fontsize=15)
 ax.legend(prop=fp, loc="lower right", fontsize=11)
-plt.savefig("osm_daejeon_pursuit.png", dpi=200, bbox_inches="tight", facecolor="white")
-print("saved: osm_daejeon_pursuit.png")
+plt.savefig(_IMAGE_DIR / "osm_daejeon_pursuit.png", dpi=200, bbox_inches="tight", facecolor="white")
+print(f"saved: {_IMAGE_DIR / 'osm_daejeon_pursuit.png'}")

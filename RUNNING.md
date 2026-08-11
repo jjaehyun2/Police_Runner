@@ -325,6 +325,7 @@ $env:PURSUIT_ITS_BBOX = "127.390,127.402,36.350,36.362"
 ## 7. 어디에 뭐가 있나
 
 ```
+README.md                           개요와 빠른 시작
 process.md                          설계서 (파이프라인·보상·채택 근거)
 RUNNING.md                          이 문서
 
@@ -342,6 +343,12 @@ pursuit_evasion_rl/
     metrics/kpi.py                    3축 KPI (멘토링 T6)
     traffic/its_client.py             ITS 실시간 교통 API
 
+tools/                              일회성 진단·시각화 스크립트 (본 흐름과 무관)
+docs/
+  pipeline.html                     파이프라인 한 장 요약
+  images/                           문서용 그림
+  screenshots/                      관제 화면 캡처
+
 scripts/
   sumo_demo/run_demo.py             데모 실행
   sumo_demo/dashboard/server.py     관제 대시보드
@@ -349,7 +356,7 @@ scripts/
   research/real_scale/              재학습 런처
 
 tests/
-  test_sumo_env.py                  SUMO 환경 16개
+  test_sumo_env.py                  SUMO 환경 24개
   research/test_remediation.py      보상 수정 11개
   research/test_road_dynamics.py    동적 도로 11개
   research/test_safety_kpi.py       안전·KPI 33개

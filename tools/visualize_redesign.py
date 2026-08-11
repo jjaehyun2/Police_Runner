@@ -1,4 +1,6 @@
 """재설계된 도로 추격 환경 시각화."""
+from pathlib import Path as _ImgPath
+_IMAGE_DIR = _ImgPath(__file__).resolve().parents[1] / "docs" / "images"
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -170,6 +172,6 @@ ax.set_title("재설계: 도로 기반 추격-도주 환경\n(폭 있는 도로 
 ax.set_facecolor("#F5F5F5")
 
 plt.tight_layout()
-plt.savefig("redesign_env_structure.png", dpi=150, bbox_inches="tight")
-print("저장 완료: redesign_env_structure.png")
+plt.savefig(_IMAGE_DIR / "redesign_env_structure.png", dpi=150, bbox_inches="tight")
+print(f"저장 완료: {_IMAGE_DIR / 'redesign_env_structure.png'}")
 plt.close()
