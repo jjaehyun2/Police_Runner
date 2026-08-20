@@ -1,4 +1,7 @@
 """Quick validation test for ObservationBuilder."""
+import sys
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 from pursuit_evasion_rl.env.road_network import RoadNetwork
 from pursuit_evasion_rl.env.observations import ObservationBuilder
 import numpy as np

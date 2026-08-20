@@ -6,6 +6,9 @@ matplotlib 프레임과 요약 그림을 out_demo/ 폴더에 저장한다. 외�
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 from pathlib import Path
 
 from pursuit_evasion_rl.osm_demo.coarsening import coarsen_raw_graph, prepare_model_network

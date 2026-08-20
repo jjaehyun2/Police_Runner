@@ -1,6 +1,7 @@
 """배포 패키지 검증 테스트."""
 import sys
-sys.path.insert(0, ".")
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import warnings; warnings.filterwarnings("ignore")
 import logging; logging.disable(logging.WARNING)
 

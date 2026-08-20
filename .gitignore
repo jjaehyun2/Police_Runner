@@ -47,3 +47,11 @@ artifacts/research/runs/
 .omc/sessions/
 .omc/state/checkpoints/
 .omc/state/sessions/
+
+# SUMO generated networks and demo state
+cache/sumo/
+scripts/sumo_demo/out/
+
+# ===== 로컬 에디터/에이전트 설정 (프로젝트 콘텐츠 아님) =====
+.claude/
+.vscode/gemini-mcp/

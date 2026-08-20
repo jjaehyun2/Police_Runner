@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>관제실 · 경찰 추격 통제 콘솔</title>
+<style>
+  :root{
+    --page:#0a0d10; --panel:#12171d; --tile:#161c23; --raised:#1e252e;
+    --border:#242c36; --text:#e6edf3; --text-2:#a8b3c1; --muted:#6c7683;
+    --cyan:#34c3ce; --amber:#e5a13a; --green:#3fbf6a; --red:#e5484d; --slate:#5b6472;
+    --mono: ui-monospace,"Cascadia Code",Consolas,monospace;
+    --ui: "Pretendard Variable",Pretendard,"Malgun Gothic",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--page);color:var(--text);
+    font-family:var(--ui);overflow:hidden}
+  body{display:flex;flex-direction:column;border-top:3px solid var(--slate);
+    transition:border-top-color .3s}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  header{display:flex;align-items:center;gap:14px;padding:10px 20px;
+    border-bottom:1px solid var(--border);flex:0 0 auto}
+  .brand{font-size:16px;font-weight:800;letter-spacing:-.01em}
+  .brand small{font-weight:500;font-size:11px;color:var(--muted);
+    letter-spacing:.16em;margin-left:8px}
+  .head-right{margin-left:auto;display:flex;align-items:center;gap:14px;
+    font-size:12px;color:var(--text-2)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--cyan);
+    display:inline-block;margin-right:6px}
+  @media (prefers-reduced-motion:no-preference){
+    .dot{animation:pulse 1.8s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  }
+
+  .summary{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;
+    padding:10px 20px;border-bottom:1px solid var(--border);flex:0 0 auto}
+  .tile{background:var(--tile);border:1px solid var(--border);border-radius:6px;
+    padding:8px 13px;min-width:0}
+  .tile-label{font-size:11px;color:var(--muted)}
+  .tile-value{font-size:22px;font-weight:800;line-height:1.25}
+  .tile-sub{font-size:11px;color:var(--muted)}
+  .meter{display:flex;gap:2px;height:10px;margin-top:5px}
+  .meter i{flex:1;background:var(--raised);border-radius:1px}
+  .meter i.on{background:var(--meter,var(--cyan))}
+
+  .body{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 350px;
+    gap:12px;padding:12px 20px 16px;min-height:0}
+  .map-wrap{position:relative;background:#0d1116;border:1px solid var(--border);
+    border-radius:8px;overflow:hidden;min-height:0}
+  #map{width:100%;height:100%;display:block;cursor:grab}
+  #map:active{cursor:grabbing}
+  #resetView{position:absolute;top:10px;left:10px;z-index:2;
+    background:rgba(10,13,16,.78);color:var(--text-2);border:1px solid var(--border);
+    border-radius:5px;padding:5px 11px;font-family:var(--ui);font-size:12px;cursor:pointer}
+  #resetView:hover{color:var(--text);border-color:var(--cyan)}
+  .rail{display:flex;flex-direction:column;gap:12px;min-height:0}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;
+    padding:11px 13px 13px;min-height:0;display:flex;flex-direction:column}
+  .panel h2{font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--text-2);margin:0 0 8px}
+  .officers{flex:0 0 auto}
+  .events-panel{flex:1;min-height:0}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;font-size:10.5px;color:var(--muted);font-weight:600;
+    padding:0 6px 5px;border-bottom:1px solid var(--border)}
+  td{padding:6px;border-bottom:1px solid rgba(36,44,54,.6)}
+  tbody tr{border-left:3px solid transparent}
+  .chip{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:99px;
+    border:1px solid currentColor}
+  .s-move{color:var(--cyan)} .s-block{color:var(--amber)} .s-wait{color:var(--slate)}
+
+  .metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .metric{background:var(--tile);border:1px solid var(--border);border-radius:5px;padding:7px 10px}
+  .metric-label{font-size:10.5px;color:var(--muted)}
+  .metric-value{font-size:16px;font-weight:700}
+
+  #eventLog{list-style:none;margin:0;padding:0;overflow-y:auto;font-size:12px}
+  #eventLog li{padding:4px 0;border-bottom:1px solid rgba(36,44,54,.5);
+    display:flex;gap:9px}
+  #eventLog time{color:var(--muted);font-family:var(--mono);flex:0 0 auto}
+
+  .badge{font-weight:700}
+  .st-tracking{color:var(--cyan)} .st-containing{color:var(--amber)}
+  .st-captured{color:var(--green)} .st-escaped{color:var(--red)}
+  .st-timeout,.st-waiting{color:var(--slate)}
+
+  #overlay{position:fixed;inset:0;background:rgba(10,13,16,.92);display:flex;
+    align-items:center;justify-content:center;flex-direction:column;gap:10px;z-index:9}
+  #overlay.hidden{display:none}
+  #overlay h3{margin:0;font-size:19px}
+  #overlay p{margin:0;color:var(--muted);font-size:13px;text-align:center;line-height:1.7}
+  code{background:var(--raised);padding:2px 6px;border-radius:3px;font-family:var(--mono);font-size:12px}
+  @media (max-width:1180px){ .body{grid-template-columns:1fr} .rail{display:none} }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">관제실<small>POLICE PURSUIT CONTROL · SUMO</small></div>
+  <div class="head-right">
+    <span id="fugitiveInfo">도주차량 —</span>
+    <span><span class="dot"></span>실시간 수신 중</span>
+  </div>
+</header>
+
+<div class="summary">
+  <div class="tile"><div class="tile-label">경과 시간</div>
+    <div class="tile-value num" id="elapsed">--:--</div>
+    <div class="tile-sub num" id="stepLabel">STEP —</div></div>
+  <div class="tile"><div class="tile-label">배경 차량</div>
+    <div class="tile-value num" id="bgCount">—</div>
+    <div class="tile-sub">시뮬레이션 내 일반 교통</div></div>
+  <div class="tile"><div class="tile-label">최근접 경찰</div>
+    <div class="tile-value" id="nearestId">—</div>
+    <div class="tile-sub num" id="nearestDist">거리 —</div></div>
+  <div class="tile"><div class="tile-label">포위 완성률</div>
+    <div class="tile-value num" id="containment">—</div>
+    <div class="meter" id="meter"></div></div>
+  <div class="tile"><div class="tile-label">상태</div>
+    <div class="tile-value badge st-waiting" id="status">대기</div>
+    <div class="tile-sub num" id="tick">갱신 —</div></div>
+</div>
+
+<div class="body">
+  <div class="map-wrap"><canvas id="map"></canvas>
+    <button id="resetView" title="더블클릭으로도 재추적됩니다">시점 초기화</button></div>
+  <div class="rail">
+    <div class="panel officers"><h2>6대 권고</h2>
+      <table><thead><tr><th>경찰</th><th>현재 도로</th><th>권고 행동</th>
+        <th style="text-align:right">거리</th><th>상태</th></tr></thead>
+        <tbody id="officerTableBody"></tbody></table></div>
+    <div class="panel"><h2>지표</h2>
+      <div class="metrics">
+        <div class="metric"><div class="metric-label">추론 지연 p50</div>
+          <div class="metric-value num" id="metricP50">— ms</div></div>
+        <div class="metric"><div class="metric-label">추론 지연 p99</div>
+          <div class="metric-value num" id="metricP99">— ms</div></div>
+        <div class="metric"><div class="metric-label">갱신 주기</div>
+          <div class="metric-value num" id="metricTick">— s</div></div>
+        <div class="metric"><div class="metric-label">시뮬 스텝</div>
+          <div class="metric-value num" id="metricStep">—</div></div>
+      </div></div>
+    <div class="panel events-panel"><h2>이벤트 로그</h2><ul id="eventLog"></ul></div>
+  </div>
+</div>
+
+<div id="overlay">
+  <h3>시뮬레이션 대기 중</h3>
+  <p>다른 터미널에서 데모를 실행하세요.<br>
+     <code>py -3.12 scripts\sumo_demo\run_demo.py --episodes 1 --realtime 0.15</code></p>
+</div>
+
+<script src="map.js"></script>
+<script>
+(function(){
+  "use strict";
+  var els = {};
+  ["elapsed","stepLabel","bgCount","nearestId","nearestDist","containment","meter",
+   "status","tick","fugitiveInfo","officerTableBody","metricP50","metricP99",
+   "metricTick","metricStep","eventLog","overlay"].forEach(function(id){
+    els[id] = document.getElementById(id);
+  });
+
+  PursuitMap.init(document.getElementById("map"));
+  for (var i=0;i<20;i++){ els.meter.appendChild(document.createElement("i")); }
+  var segs = els.meter.querySelectorAll("i");
+
+  function fmtLatency(n){
+    if (typeof n !== "number" || !isFinite(n)) return "— ms";
+    if (n >= 100) return n.toFixed(0) + " ms";
+    if (n >= 10)  return n.toFixed(1) + " ms";
+    if (n >= 1)   return n.toFixed(2) + " ms";
+    if (n > 0)    return n.toFixed(3) + " ms";
+    return "0 ms";
+  }
+  var STATUS = {
+    captured:["검거","st-captured","var(--green)"],
+    escaped:["탈출","st-escaped","var(--red)"],
+    timeout:["시간초과","st-timeout","var(--slate)"],
+    waiting:["대기","st-waiting","var(--slate)"]
+  };
+
+  function renderState(s){
+    var waiting = !s || s.status === "waiting";
+    els.overlay.classList.toggle("hidden", !waiting);
+    if (waiting) return;
+
+    els.elapsed.textContent = s.elapsed_str || "--:--";
+    els.stepLabel.textContent = "STEP " + (s.step != null ? s.step : "—");
+    els.bgCount.textContent = s.background_vehicles != null ? s.background_vehicles : "—";
+    els.nearestId.textContent = (s.nearest && s.nearest.officer) || "—";
+    els.nearestDist.textContent = s.nearest && s.nearest.distance_m != null
+      ? "거리 " + s.nearest.distance_m + "m" : "거리 —";
+
+    var pct = typeof s.containment_pct === "number" ? s.containment_pct : 0;
+    els.containment.textContent = pct.toFixed(1) + "%";
+    var colour = pct >= 85 ? "var(--green)" : pct >= 50 ? "var(--amber)" : "var(--cyan)";
+    for (var i=0;i<segs.length;i++){
+      segs[i].classList.toggle("on", i < Math.round(pct/5));
+      segs[i].style.setProperty("--meter", colour);
+    }
+
+    var st = STATUS[s.status];
+    if (!st) st = pct >= 50 ? ["포위중","st-containing","var(--amber)"]
+                            : ["추적중","st-tracking","var(--cyan)"];
+    els.status.textContent = st[0];
+    els.status.className = "tile-value badge " + st[1];
+    document.body.style.borderTopColor = st[2];
+
+    els.tick.textContent = "갱신 " + (s.tick_s != null ? s.tick_s : "—") + "s";
+    els.fugitiveInfo.textContent = s.fugitive && s.fugitive.edge
+      ? "도주차량 · " + s.fugitive.edge + "  " + (s.fugitive.speed_kph||0) + "km/h"
+      : "도주차량 —";
+
+    var rows = (s.officers||[]).slice().sort(function(a,b){
+      return (a.distance_m||1e9) - (b.distance_m||1e9); });
+    els.officerTableBody.innerHTML = rows.map(function(o){
+      var cls = o.state === "차단" ? "s-block" : o.state === "대기" ? "s-wait" : "s-move";
+      var edge = (o.edge||"").length > 14 ? (o.edge||"").slice(0,13)+"…" : (o.edge||"—");
+      return '<tr style="border-left-color:'+
+        (o.state==="차단"?"var(--amber)":o.state==="대기"?"var(--slate)":"var(--cyan)")+'">'+
+        '<td class="num"><b>'+o.id+'</b></td><td>'+edge+'</td><td>'+(o.action||"—")+'</td>'+
+        '<td class="num" style="text-align:right">'+(o.distance_m!=null?o.distance_m+"m":"—")+'</td>'+
+        '<td><span class="chip '+cls+'">'+(o.state||"—")+'</span></td></tr>';
+    }).join("");
+
+    var lat = s.latency || {};
+    els.metricP50.textContent = fmtLatency(lat.p50_ms);
+    els.metricP99.textContent = fmtLatency(lat.p99_ms);
+    els.metricTick.textContent = (s.tick_s != null ? s.tick_s : "—") + " s";
+    els.metricStep.textContent = s.step != null ? s.step : "—";
+
+    els.eventLog.innerHTML = (s.events||[]).slice().reverse().map(function(e){
+      return "<li><time>"+(e.t||"")+"</time><span>"+(e.msg||"")+"</span></li>";
+    }).join("");
+  }
+
+  function poll(){
+    fetch("/api/state",{cache:"no-store"}).then(function(r){return r.json();})
+      .then(renderState).catch(function(){});
+    if (!PursuitMap.hasNetwork()){
+      fetch("/api/network",{cache:"no-store"}).then(function(r){return r.json();})
+        .then(function(n){ PursuitMap.setNetwork(n); }).catch(function(){});
+    }
+    fetch("/api/scene",{cache:"no-store"}).then(function(r){return r.json();})
+      .then(function(sc){ PursuitMap.setScene(sc); }).catch(function(){});
+  }
+  poll();
+  setInterval(poll, 500);
+  document.getElementById("resetView").addEventListener("click", function(){
+    PursuitMap.resetView();
+  });
+  window.addEventListener("resize", function(){ PursuitMap.resize(); });
+})();
+</script>
+</body>
+</html>

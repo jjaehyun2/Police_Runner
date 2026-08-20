@@ -27,6 +27,7 @@ from pursuit_evasion_rl.research.policies.masked_mappo import (
 from pursuit_evasion_rl.research.smdp import AsyncDecisionTransitionBuffer, DecisionEpoch, DecisionTransition
 from pursuit_evasion_rl.research.variants.observations import OBSERVATION_28D_DIM, Observation28DAdapter
 from pursuit_evasion_rl.research.variants.placement import PlacementCurriculumConfig, generate_placement
+from pursuit_evasion_rl.research.variants.road_dynamics import RoadDynamicsConfig, sample_segment_speeds
 from pursuit_evasion_rl.research.variants.rewards import RewardComponentSet, total_rewards
 from pursuit_evasion_rl.research.variants.stabilization import StabilizationCondition, u_turn_penalties
 
@@ -170,6 +171,10 @@ class ResearchTrainer:
         observation_adapter_factory: ObservationAdapterFactory | None = None,
         placement_config: PlacementCurriculumConfig | None = None,
         stabilization_condition: StabilizationCondition | None = None,
+        step_reward_fn: Callable[[ModelNetwork, Any, Any, bool], Sequence[float]] | None = None,
+        timeout_bootstrap: bool = False,
+        arrival_decisions: bool = False,
+        road_dynamics_config: RoadDynamicsConfig | None = None,
     ) -> None:
         if not isinstance(tuning_data, TuningDataView):
             raise ResearchValidationError("INVALID_TUNING_VIEW", "trainer requires a leakage-safe TuningDataView")
@@ -222,6 +227,21 @@ class ResearchTrainer:
         # ResearchMaskedMAPPO.sample's logit_bias=None path already treats as a
         # complete no-op -- this reproduces prior behavior exactly.
         self._stabilization_condition = stabilization_condition
+        # Remediation axes (all default to the exact audited prior behavior):
+        # ``step_reward_fn`` replaces the euclidean _step_rewards computation
+        # (e.g. road-graph distances with per-officer credit assignment);
+        # ``timeout_bootstrap`` closes TIMEOUT episodes as truncations so the
+        # bootstrap value survives; ``arrival_decisions`` lets officers decide
+        # at their arrival intersection in the same step (parity with the
+        # evader's callable provider) instead of losing one forced-STAY step.
+        self._step_reward_fn = step_reward_fn
+        self._timeout_bootstrap = bool(timeout_bootstrap)
+        self._arrival_decisions = bool(arrival_decisions)
+        # Road-dynamics axis (None = prior behavior): per-episode segment
+        # speeds sampled deterministically from the episode seed, fed to the
+        # env as a side-car reset option and to the reward via its
+        # ``on_episode`` hook so both see the same traffic reality.
+        self._road_dynamics_config = road_dynamics_config
         critic_dim = self._observation_dim * POLICE_COUNT
         torch.manual_seed(self.training_seed)
         self.policy = policy or ResearchMaskedMAPPO(
@@ -285,6 +305,14 @@ class ResearchTrainer:
         return tuple(placement_position(network, placement) for placement in state.police)
 
     def _step_rewards(self, network: ModelNetwork, before, after, captured: bool) -> tuple[float, ...]:
+        if self._step_reward_fn is not None:
+            rewards = tuple(float(value) for value in self._step_reward_fn(network, before, after, captured))
+            if len(rewards) != POLICE_COUNT:
+                raise ResearchValidationError(
+                    "INVALID_REWARD_DIMENSION", "step_reward_fn must return one reward per officer",
+                    expected=POLICE_COUNT, actual=len(rewards),
+                )
+            return rewards
         fugitive_before = placement_position(network, before.fugitive)
         fugitive_after = placement_position(network, after.fugitive)
         old_distances = tuple(math.dist(position, fugitive_before) for position in self._positions(network, before))
@@ -309,15 +337,88 @@ class ResearchTrainer:
             ends.append(-1)
         return tuple(ends)
 
+    def _build_arrival_provider(
+        self,
+        *,
+        env: OSMRoadPursuitEnv,
+        network: ModelNetwork,
+        adapter: Any,
+        generator: torch.Generator,
+        officer_id: int,
+        arrival_epochs: dict[int, "DecisionEpoch"],
+        previous_intersection_ids: dict[int, int | None],
+        legal_records: list[tuple[bytes, int]],
+    ) -> Callable[[str, int, Sequence[int], int], int]:
+        """Policy-backed provider the environment invokes at the officer's
+        actual arrival intersection (remediation E, evader parity).
+
+        Only the hop-0 decision is recorded as a DecisionEpoch; further hops
+        along zero-time virtual continuations are sampled fresh but not
+        recorded, honoring the buffer's one-decision-per-officer-per-step
+        contract.  The observation is taken mid-step (post-advance), which is
+        exactly the state the decision acts on.
+        """
+
+        def provider(agent_id: str, intersection_id: int, ordered: Sequence[int], hop: int) -> int:
+            if not ordered:
+                return STAY_ACTION
+            mask = np.zeros(self.policy.action_dim, dtype=bool)
+            mask[: min(len(ordered), self.policy.action_dim - 1)] = True
+            mask[STAY_ACTION] = True
+            sealed = self.policy.seal_mask(mask)
+            state_now = env.episode_state()
+            observations = self._actor_observations(adapter, state_now, self.episode_config.max_steps)
+            context = self._critic_context(observations)
+            penalties = None
+            logit_bias = None
+            if self._stabilization_condition is not None and self._stabilization_condition.u_turn_suppression:
+                segment_end = {segment.id: int(segment.end_id) for segment in network.segments}
+                ends = [segment_end[segment_id] for segment_id in ordered]
+                while len(ends) < self.policy.action_dim:
+                    ends.append(-1)
+                penalties = u_turn_penalties(
+                    self._stabilization_condition, tuple(ends),
+                    previous_intersection_id=previous_intersection_ids.get(officer_id),
+                )
+                logit_bias = torch.tensor(penalties, dtype=torch.float32)
+            sample = self.policy.sample(
+                torch.from_numpy(observations[officer_id]), sealed, generator,
+                officer_id=officer_id, logit_bias=logit_bias,
+            )
+            if hop == 0:
+                previous_intersection_ids[officer_id] = intersection_id
+                arrival_epochs[officer_id] = DecisionEpoch.create(
+                    actor_obs=observations[officer_id],
+                    action=sample.action,
+                    action_mask=sample.stored_mask_bytes,
+                    old_log_prob=sample.log_prob,
+                    critic_context=context,
+                    logit_bias=penalties,
+                )
+                legal_records.append((sample.stored_mask_bytes, sample.action))
+            return sample.action
+
+        return provider
+
     def _reset_episode(self, env: OSMRoadPursuitEnv, network: ModelNetwork, *, seed: int) -> None:
-        if self._placement_config is None:
+        # Every option is drawn deterministically from ``seed`` so two runs of
+        # the same (condition, seed, episode) reproduce identical initial
+        # states; omitting every axis reproduces the exact prior reset call.
+        options: dict[str, Any] = {}
+        if self._road_dynamics_config is not None:
+            speeds = sample_segment_speeds(network, self._road_dynamics_config, seed=seed)
+            options["segment_speeds"] = speeds
+            hook = getattr(self._step_reward_fn, "on_episode", None)
+            if callable(hook):
+                hook(network, speeds)
+        if self._placement_config is not None:
+            draw = generate_placement(network, _dataclass_replace(self._placement_config, placement_seed=seed))
+            options["police"] = list(draw.police)
+            options["fugitive"] = draw.fugitive
+        if options:
+            env.reset(seed=seed, options=options)
+        else:
             env.reset(seed=seed)
-            return
-        # Each episode draws its own placement, deterministically from ``seed``,
-        # so two runs of the same (condition, seed, episode) still reproduce
-        # identical initial states under a placement-ablation Condition.
-        draw = generate_placement(network, _dataclass_replace(self._placement_config, placement_seed=seed))
-        env.reset(seed=seed, options={"police": list(draw.police), "fugitive": draw.fugitive})
 
     def _rollout(self, network: ModelNetwork, *, seed: int, generator: torch.Generator) -> EpisodeRollout:
         env = OSMRoadPursuitEnv(network, self.episode_config)
@@ -359,6 +460,7 @@ class ResearchTrainer:
             for officer_id in decision_ids:
                 mask = self.policy.seal_mask(masks[f"police_{officer_id}"])
                 logit_bias = None
+                penalties = None
                 current_intersection = decision_intersection_id(network, state.police[officer_id])
                 if self._stabilization_condition is not None and self._stabilization_condition.u_turn_suppression:
                     incoming_heading = state.incoming_headings.get(f"police_{officer_id}")
@@ -379,11 +481,26 @@ class ResearchTrainer:
                     action_mask=sample.stored_mask_bytes,
                     old_log_prob=sample.log_prob,
                     critic_context=context,
+                    logit_bias=penalties,
                 )
                 actions[f"police_{officer_id}"] = sample.action
                 legal_records.append((sample.stored_mask_bytes, sample.action))
             buffer.start_decisions(epochs)
             first_epoch = False
+            # Remediation E: officers arriving mid-step decide at their actual
+            # arrival intersection via a callable provider (parity with the
+            # evader), instead of burning one forced-STAY step per segment.
+            arrival_epochs: dict[int, DecisionEpoch] = {}
+            if self._arrival_decisions:
+                for officer_index in range(POLICE_COUNT):
+                    if officer_index in decision_ids:
+                        continue
+                    actions[f"police_{officer_index}"] = self._build_arrival_provider(
+                        env=env, network=network, adapter=adapter, generator=generator,
+                        officer_id=officer_index, arrival_epochs=arrival_epochs,
+                        previous_intersection_ids=previous_intersection_ids,
+                        legal_records=legal_records,
+                    )
             actions[FUGITIVE_ID] = evader.env_provider(network, self._positions(network, state))
             _, _, _, _, info = env.step(actions)
             next_state = env.episode_state()
@@ -393,10 +510,22 @@ class ResearchTrainer:
                 for officer_id in range(POLICE_COUNT):
                     if event.startswith(f"police_{officer_id}:virtual_hop:"):
                         virtual_counts[officer_id] += 1
+            # Arrival epochs open BEFORE this step's reward is recorded so the
+            # new decision always spans at least this physical step (an
+            # arrival officer that sampled STAY may decide again next step;
+            # opening after the record would close it at zero duration).  The
+            # traversal it just finished keeps every earlier step's reward.
+            if arrival_epochs:
+                buffer.start_decisions(arrival_epochs)
             buffer.record_physical_step(rewards, virtual_hops=virtual_counts)
         final_observations = self._actor_observations(adapter, env.episode_state(), self.episode_config.max_steps)
         final_context = self._critic_context(final_observations)
-        buffer.close_terminal(tuple(final_context for _ in range(POLICE_COUNT)))
+        terminal_close = True
+        if self._timeout_bootstrap and env.outcome is EpisodeOutcome.TIMEOUT:
+            terminal_close = False
+        buffer.close_terminal(
+            tuple(final_context for _ in range(POLICE_COUNT)), terminal=terminal_close,
+        )
         rollout = EpisodeRollout(
             transitions=buffer.drain_completed(),
             outcome=env.outcome or EpisodeOutcome.TIMEOUT,
@@ -431,6 +560,13 @@ class ResearchTrainer:
             StoredActionMask(item.stored_mask_bytes, item.stored_mask_hash, self.policy.action_dim)
             for item in transitions
         )
+        logit_biases = None
+        if any(item.logit_bias is not None for item in transitions):
+            zero = (0.0,) * self.policy.action_dim
+            logit_biases = torch.tensor(
+                [tuple(item.logit_bias) if item.logit_bias is not None else zero for item in transitions],
+                dtype=torch.float32,
+            )
         return MaskedMAPPOBatch(
             actor_obs=actor_obs,
             officer_ids=torch.tensor([item.officer_id for item in transitions], dtype=torch.long),
@@ -442,6 +578,7 @@ class ResearchTrainer:
             stored_masks=stored_masks,
             sampling_mask_bytes=tuple(item.stored_mask_bytes for item in transitions),
             sampling_mask_hashes=tuple(item.stored_mask_hash for item in transitions),
+            logit_biases=logit_biases,
         )
 
     def _validation_score(self, update_index: int) -> float:

@@ -22,6 +22,23 @@ from pursuit_evasion_rl.training.algorithms import (
 logger = logging.getLogger(__name__)
 
 
+def _stack_masks(masks: list) -> np.ndarray | None:
+    """행동 마스크 리스트를 (N, action_dim) 배열로 만든다.
+
+    마스크가 비었거나 하나라도 None이면 None을 반환해, 업데이트 쪽에서
+    마스크 없이 (기존 동작대로) 처리하게 한다.
+
+    Args:
+        masks: 스텝별 행동 마스크 리스트
+
+    Returns:
+        boolean 배열 또는 None
+    """
+    if not masks or any(m is None for m in masks):
+        return None
+    return np.asarray(masks, dtype=bool)
+
+
 class SelfPlayManager:
     """Self-Play 학습 매니저.
 
@@ -86,7 +103,13 @@ class SelfPlayManager:
 
         # 경험 버퍼
         trajectories: dict[str, dict[str, list]] = {
-            aid: {"obs": [], "actions": [], "rewards": [], "log_probs": []}
+            aid: {
+                "obs": [],
+                "actions": [],
+                "rewards": [],
+                "log_probs": [],
+                "masks": [],
+            }
             for aid in agent_ids
         }
 
@@ -113,13 +136,20 @@ class SelfPlayManager:
                 obs_flat = _flatten_observation(obs)
                 trajectories[aid]["obs"].append(obs_flat)
                 trajectories[aid]["actions"].append(action)
+                # 샘플링에 쓴 마스크를 저장해야 업데이트 때 같은 분포로
+                # 로그 확률을 재계산할 수 있다.
+                trajectories[aid]["masks"].append(mask)
 
-                # MAPPO의 경우 로그 확률 저장
+                # MAPPO의 경우 로그 확률 저장 (마스크 분포 기준)
                 if isinstance(self.police_algo, MAPPOAlgorithm):
                     if aid.startswith("police"):
-                        log_prob = self.police_algo.get_log_prob(aid, obs, action)
+                        log_prob = self.police_algo.get_log_prob(
+                            aid, obs, action, action_mask=mask
+                        )
                     else:
-                        log_prob = self.fugitive_algo.get_log_prob(aid, obs, action)
+                        log_prob = self.fugitive_algo.get_log_prob(
+                            aid, obs, action, action_mask=mask
+                        )
                     trajectories[aid]["log_probs"].append(log_prob)
 
             # 환경 스텝 실행
@@ -202,34 +232,50 @@ class SelfPlayManager:
         fugitive_id = "fugitive"
 
         # 경찰 팀 배치 구성 (모든 경찰 경험을 모음 - 파라미터 공유)
+        # 경찰별 궤적을 이어붙이므로, 각 경찰 궤적의 마지막 인덱스를 done으로
+        # 표시해 할인 누적이 다른 경찰의 경험으로 새지 않게 한다.
         police_obs: list[np.ndarray] = []
         police_actions: list[int] = []
         police_rewards: list[float] = []
         police_old_log_probs: list[float] = []
+        police_masks: list = []
+        police_dones: list[bool] = []
 
         for pid in police_ids:
             traj = trajectories[pid]
+            n = len(traj["obs"])
+            if n == 0:
+                continue
             police_obs.extend(traj["obs"])
             police_actions.extend(traj["actions"])
             police_rewards.extend(traj["rewards"])
             police_old_log_probs.extend(traj["log_probs"])
+            police_masks.extend(traj.get("masks", [None] * n))
+            police_dones.extend([False] * (n - 1) + [True])
 
-        # 도망자 배치 구성
+        # 도망자 배치 구성 (단일 궤적이므로 마지막만 done)
         fugitive_traj = trajectories.get(fugitive_id, {})
         fugitive_obs = fugitive_traj.get("obs", [])
         fugitive_actions = fugitive_traj.get("actions", [])
         fugitive_rewards = fugitive_traj.get("rewards", [])
         fugitive_old_log_probs = fugitive_traj.get("log_probs", [])
+        fugitive_masks = fugitive_traj.get("masks", [])
+        n_fug = len(fugitive_obs)
+        fugitive_dones = [False] * max(n_fug - 1, 0) + ([True] if n_fug else [])
 
         batch = {
             "police_obs": police_obs,
             "police_actions": police_actions,
             "police_rewards": police_rewards,
             "police_old_log_probs": police_old_log_probs,
+            "police_dones": police_dones,
+            "police_masks": _stack_masks(police_masks),
             "fugitive_obs": fugitive_obs,
             "fugitive_actions": fugitive_actions,
             "fugitive_rewards": fugitive_rewards,
             "fugitive_old_log_probs": fugitive_old_log_probs,
+            "fugitive_dones": fugitive_dones,
+            "fugitive_masks": _stack_masks(fugitive_masks),
         }
 
         return self.police_algo.train_step(batch)

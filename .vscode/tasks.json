@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "SUMO 데모 (GUI)", "type": "shell",
+      "command": "py -3.12 scripts/sumo_demo/run_demo.py --gui --realtime 0.15 --episodes 1 --max-steps 400",
+      "problemMatcher": [] },
+    { "label": "관제 대시보드 서버", "type": "shell",
+      "command": "py -3.12 scripts/sumo_demo/dashboard/server.py --port 8020",
+      "isBackground": true, "problemMatcher": [] },
+    { "label": "테스트: SUMO 환경", "type": "shell",
+      "command": "py -3.12 -m pytest tests/test_sumo_env.py -q",
+      "group": "test", "problemMatcher": [] },
+    { "label": "발표 자료 생성 (차트)", "type": "shell",
+      "command": "py -3.12 scripts/deck/recompute_capture_stats.py; py -3.12 scripts/deck/make_capture_chart.py",
+      "problemMatcher": [] }
+  ]
+}

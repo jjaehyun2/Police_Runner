@@ -1,9 +1,12 @@
 """연속 2D 환경 구조 시각화 스크립트."""
+from pathlib import Path as _ImgPath
+_IMAGE_DIR = _ImgPath(__file__).resolve().parents[1] / "docs" / "images"
 import sys
 import warnings
 import logging
 
-sys.path.insert(0, ".")
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 warnings.filterwarnings("ignore")
 logging.disable(logging.WARNING)
 
@@ -108,6 +111,6 @@ ax.set_title("연속 2D 추격-도주 환경 구조\n(5x5 그리드 도로, 경�
 ax.grid(True, alpha=0.2)
 
 plt.tight_layout()
-plt.savefig("continuous_env_structure.png", dpi=150, bbox_inches="tight")
-print("저장 완료: continuous_env_structure.png")
+plt.savefig(_IMAGE_DIR / "continuous_env_structure.png", dpi=150, bbox_inches="tight")
+print(f"저장 완료: {_IMAGE_DIR / 'continuous_env_structure.png'}")
 plt.close()

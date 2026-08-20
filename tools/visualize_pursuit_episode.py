@@ -1,7 +1,8 @@
 """도로 추격 에피소드 시각화 — 학습된 모델로 한 에피소드를 프레임별 PNG 저장."""
 import sys
 import os
-sys.path.insert(0, ".")
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import warnings; warnings.filterwarnings("ignore")
 import logging; logging.disable(logging.WARNING)
 

@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SUMO 데모 (GUI)",
+      "type": "debugpy", "request": "launch",
+      "program": "${workspaceFolder}/scripts/sumo_demo/run_demo.py",
+      "args": ["--gui", "--realtime", "0.15", "--episodes", "1", "--max-steps", "400"],
+      "console": "integratedTerminal", "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "SUMO 데모 (헤드리스 12회)",
+      "type": "debugpy", "request": "launch",
+      "program": "${workspaceFolder}/scripts/sumo_demo/run_demo.py",
+      "args": ["--episodes", "12", "--max-steps", "400", "--background", "280"],
+      "console": "integratedTerminal", "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "관제 대시보드 서버",
+      "type": "debugpy", "request": "launch",
+      "program": "${workspaceFolder}/scripts/sumo_demo/dashboard/server.py",
+      "args": ["--port", "8020"],
+      "console": "integratedTerminal", "cwd": "${workspaceFolder}"
+    }
+  ]
+}
