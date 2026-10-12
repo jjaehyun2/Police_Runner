@@ -38,12 +38,29 @@ function apiError(context: string, err: unknown) {
 const dark = matchMedia("(prefers-color-scheme: dark)");
 const map = L.map("map", { zoomControl: true, preferCanvas: true, attributionControl: true });
 const canvas = L.canvas({ padding: 0.3 });
-const tileUrl = () => `https://{s}.basemaps.cartocdn.com/${dark.matches ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`;
-const tiles = L.tileLayer(tileUrl(), {
-  maxZoom: 19, subdomains: "abcd",
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+// OpenStreetMap tiles (dark mode recolours them with a CSS filter on the tile pane); the simulator's own
+// road network is drawn on top, so the map stays readable even when tiles cannot load.
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 }).addTo(map);
-dark.addEventListener("change", () => { tiles.setUrl(tileUrl()); redrawFrame(true); });
+const roadLayer = L.layerGroup().addTo(map);
+function drawRoads() {
+  roadLayer.clearLayers();
+  if (!info) return;
+  const col = css("--road");
+  for (const r of info.roads) L.polyline(r, { renderer: canvas, color: col, weight: 2, opacity: 0.55, interactive: false }).addTo(roadLayer);
+}
+function showMap(m: MapInfo) {
+  info = m;
+  $("mapLabel").textContent = m.label;
+  map.fitBounds(L.latLngBounds(m.bounds[0], m.bounds[1]), { padding: [10, 10] });
+  drawRoads();
+}
+function fitAction(fr: Frame) {
+  map.fitBounds(L.latLngBounds([...fr.p, fr.f]).pad(0.6), { maxZoom: 17 });
+}
+dark.addEventListener("change", () => { drawRoads(); redrawFrame(true); });
 map.setView([36.351, 127.385], 15);
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -174,10 +191,8 @@ async function loadMaps() {
 async function loadMap(name: string) {
   const r = await fetch(api(`/api/map/${name}`), { headers: apiHeaders() });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  info = await r.json() as MapInfo;
   replayMap = false;
-  $("mapLabel").textContent = info.label;
-  map.fitBounds(L.latLngBounds(info.bounds[0], info.bounds[1]), { padding: [10, 10] });
+  showMap(await r.json() as MapInfo);
   police = []; fugitive = null; showPlacement(); drawPlacement();
 }
 
@@ -191,10 +206,8 @@ $("fallback").addEventListener("click", async () => {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const saved = await res.json() as { map: MapInfo; setup: Setup; frames: Frame[]; outcome: string; seconds: number };
     if (!saved.frames.length) throw new Error("녹화 프레임이 없습니다");
-    info = saved.map;
     replayMap = true;
-    $("mapLabel").textContent = saved.map.label;
-    map.fitBounds(L.latLngBounds(saved.map.bounds[0], saved.map.bounds[1]), { padding: [10, 10] });
+    showMap(saved.map);
     police = saved.setup.police.map((p) => L.latLng(p[0], p[1]));
     fugitive = L.latLng(saved.setup.fugitive[0], saved.setup.fugitive[1]);
     drawPlacement();
@@ -252,7 +265,8 @@ async function startRun() {
   run.done = true;
   $<HTMLButtonElement>("run").disabled = false;
   if (run.error) setStatus("error", `실행 실패: ${run.error}`);
-  else if (current === run) finishStatus(run);
+  else if (current === run && !playing && cursor >= run.frames.length - 1) finishStatus(run);
+  else if (current === run) setStatus("running", "계산 완료 · 재생 중");
   renderHistory();
 }
 
@@ -262,7 +276,7 @@ function handle(run: Run, msg: Record<string, unknown>) {
     run.frames.push(msg as unknown as Frame);
     if (current === run) {
       $<HTMLInputElement>("scrub").max = String(Math.max(0, run.frames.length - 1));
-      if (run.frames.length === 1) { cursor = 0; playing = true; follow = true; redrawFrame(true); tickStart(); }
+      if (run.frames.length === 1) { cursor = 0; playing = true; follow = true; fitAction(run.frames[0]); redrawFrame(true); tickStart(); }
       if (!playing && follow && cursor >= run.frames.length - 2) { playing = true; tickStart(); }
     }
   } else if (msg.type === "end") { run.outcome = msg.outcome as string; run.seconds = msg.seconds as number; }
@@ -403,10 +417,9 @@ function spark(i: number) {
 // ---------------------------------------------------------------------------------------------
 // history
 function select(run: Run) {
-  info = run.mapInfo;
   replayMap = !!run.recorded;
-  $("mapLabel").textContent = info.label;
-  map.fitBounds(L.latLngBounds(info.bounds[0], info.bounds[1]), { padding: [10, 10] });
+  if (info !== run.mapInfo) showMap(run.mapInfo);
+  if (run.frames.length) fitAction(run.frames[0]);
   current = run; cursor = 0; lastIdx = -1; playing = false; follow = true;
   policeMarkers = []; vehLayer.clearLayers();
   $<HTMLInputElement>("scrub").max = String(Math.max(0, run.frames.length - 1));
