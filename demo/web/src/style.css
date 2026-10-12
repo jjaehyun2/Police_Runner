@@ -1,0 +1,107 @@
+/* layout: dispatch console — controls left, map centre, live status right; stacks on phones */
+:root {
+  --bg: #eef1f5; --panel: #ffffff; --ink: #17202b; --muted: #5d6b7a; --line: #d6dce3;
+  --police: #1d5fd0; --fugitive: #d8412c; --region: #e2533c; --target: #1d5fd0; --exit: #d99a00;
+  --bg-car: #8f9aa6; --ok: #17804c; --bad: #c03a2b; --accent: #17202b;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1319; --panel: #151c24; --ink: #e3e9ef; --muted: #93a1af; --line: #29333e;
+    --police: #5b9bff; --fugitive: #ff6a52; --region: #ff6a52; --target: #5b9bff; --exit: #f2b632;
+    --bg-car: #6f7b88; --ok: #45c486; --bad: #ff7b6c; --accent: #e3e9ef; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box }
+html, body { height: 100%; margin: 0 }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans) }
+button, input, select { font: inherit; color: inherit }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--police); outline-offset: 2px }
+
+.app { height: 100%; display: grid; grid-template-columns: 300px minmax(0, 1fr) 290px; grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "top top top" "left map right" }
+.top { grid-area: top; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; padding-top: calc(10px + env(safe-area-inset-top, 0px)); background: var(--panel); border-bottom: 1px solid var(--line) }
+.brand { display: flex; align-items: baseline; gap: 10px }
+h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em }
+.sub { color: var(--muted); font-size: 13px }
+.status { font-family: var(--mono); font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted) }
+.status[data-state="running"] { color: var(--police); border-color: var(--police) }
+.status[data-state="success"] { color: var(--ok); border-color: var(--ok) }
+.status[data-state="escape"], .status[data-state="error"], .status[data-state="timeout"] { color: var(--bad); border-color: var(--bad) }
+
+.panel { background: var(--panel); overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 16px; min-width: 0 }
+.left { grid-area: left; border-right: 1px solid var(--line) }
+.right { grid-area: right; border-left: 1px solid var(--line) }
+.group { display: flex; flex-direction: column; gap: 8px; min-width: 0 }
+.label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted) }
+.hint { margin: 0; font-size: 12px; color: var(--muted) }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap }
+.inline { font-size: 13px; color: var(--muted) }
+select, input[type=number], input[type=url] { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px }
+input[type=number] { width: 58px }
+input[type=url] { flex: 1; min-width: 0 }
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
+.seg.three { grid-template-columns: repeat(3, 1fr) }
+.seg button { border: 0; background: transparent; padding: 7px 6px; cursor: pointer; font-size: 13px; display: flex; gap: 6px; align-items: center; justify-content: center }
+.seg.two button:nth-child(n+3) { border-top: 1px solid var(--line) }
+.seg button + button { border-left: 1px solid var(--line) }
+.seg.two button:nth-child(3) { border-left: 0 }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--panel); font-weight: 600 }
+.sub-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 2px }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 7px; padding: 6px 11px; cursor: pointer }
+.btn:hover { border-color: var(--muted) }
+.btn.ghost { color: var(--muted) }
+.run { border: 0; border-radius: 9px; padding: 12px; background: var(--police); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer }
+.run:disabled { opacity: 0.5; cursor: progress }
+.counts { font-family: var(--mono); font-size: 12.5px; color: var(--muted) }
+.server summary { cursor: pointer; font-size: 12.5px; color: var(--muted) }
+.server .row { margin-top: 8px }
+
+.map-wrap { grid-area: map; position: relative; min-width: 0 }
+#map { position: absolute; inset: 0; background: var(--bg) }
+.legend { position: absolute; left: 10px; bottom: 10px; z-index: 500; display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: calc(100% - 20px);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--muted) }
+.legend span { display: flex; gap: 6px; align-items: center }
+.dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; flex: none }
+.dot.police { background: var(--police) } .dot.fugitive { background: var(--fugitive) } .dot.exit { background: var(--exit) } .dot.bg { background: var(--bg-car); width: 7px; height: 7px }
+.bar.region { display: inline-block; width: 18px; height: 4px; border-radius: 2px; background: var(--region); opacity: 0.6 }
+.sq { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--target) }
+
+.clockrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+.big { font-family: var(--mono); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2 }
+#spark { width: 100%; height: auto; aspect-ratio: 560 / 110; border: 1px solid var(--line); border-radius: 7px }
+.controls select { margin-left: auto }
+input[type=range] { width: 100%; accent-color: var(--police) }
+.officers { width: 100%; border-collapse: collapse; font-size: 13px }
+.officers td { padding: 5px 2px; border-top: 1px solid var(--line); vertical-align: middle }
+.officers td.n { width: 30px }
+.officers td.d { text-align: right; font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums }
+.num { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--police); color: #fff; font: 600 11px var(--mono) }
+.role { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line) }
+.role.pursue { color: var(--fugitive); border-color: var(--fugitive) }
+.role.hold { color: var(--police); border-color: var(--police) }
+.empty { color: var(--muted); font-size: 12.5px; border: 0 !important }
+.history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px }
+.history button { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 7px; padding: 6px 9px; cursor: pointer; display: grid; gap: 1px }
+.history button[aria-current="true"] { border-color: var(--police); box-shadow: inset 0 0 0 1px var(--police) }
+.history .h1 { font-size: 12.5px; font-weight: 600 }
+.history .h2 { font-family: var(--mono); font-size: 11.5px; color: var(--muted) }
+.ok { color: var(--ok) } .bad { color: var(--bad) }
+
+/* map markers */
+.veh { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: #fff; font: 600 11px var(--mono); border: 2px solid var(--panel); box-shadow: 0 1px 3px #0005 }
+.veh.police { background: var(--police) }
+.veh.fugitive { background: var(--fugitive); width: 20px; height: 20px }
+.veh.ghost { opacity: 0.55 }
+.leaflet-container { font-family: var(--sans) }
+
+@media (max-width: 1000px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 55vh auto auto; grid-template-areas: "top" "map" "right" "left"; height: auto; min-height: 100% }
+  .panel { overflow: visible; border: 0; border-top: 1px solid var(--line) }
+  .map-wrap { min-height: 55vh }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important } }
+.replay { width: 100%; margin-top: 8px; }
