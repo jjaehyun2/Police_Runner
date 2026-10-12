@@ -255,3 +255,19 @@
   - officers route on `sim.pg` (barricaded roads removed) from the start; escape region in the dashboard also uses `pg`;
   - fugitive uses its own graph `sim.fg`, closes a road only when within `BARRICADE_SIGHT_M`=80 m, then re-plans; if the barricade is ahead on its current road it U-turns (`moveToXY` onto the reverse edge); one-way/failed U-turn → `sim.trapped`, the 2 nearest officers switch to pursue and approach along that road;
   - **the team policies (GA / encircle / ...) do not know about barricades yet** — officers may hold an exit that a barricade already closes. Next step: give the policy the barricaded graph (graph caches are keyed per network id in `multi_sim.graph_of` and `obs_ext.graph_for`, so this needs a per-run graph instead of the shared cache) and, later, let the policy choose barricade placement.
+
+### 7.y Carried barricades prototype (Claude, 2026-10-13)
+`SumoPursuit(carry_barricades=True)` / API `carry_barricades` / dashboard checkbox. One barricade per patrol car, placed by rules in `sumo_sim._deploy` (rules via `SUMO_BARRICADE_RULES`, default `leave,stand-in`). SUMO ideal, daejeon_demo, ring start, GA policy, 100 episodes, same seeds (eval script pattern: scratchpad `carry_eval.py`):
+
+| rules | N=4 SR | paired W/L vs none | barricades/ep |
+|---|---|---|---|
+| none | 87.0 | – | 0 |
+| leave | 89.0 | 2/0 | 0.18 |
+| leave,stand-in (default) | 89.0 | 2/0 | 0.59 |
+| leave,planned | 89.0 | 3/1 | 0.22 |
+| planned | 85.0 | 1/3 | 0.02 |
+| leave,pass (cut .05/.15) | 82.0 | 3/8 | 2.0 / 1.7 |
+
+N=3: none 80.0, leave 80.0 (1/1), leave,stand-in 79.0 (1/2). N=6: 100 either way. Every failure without barricades is a late escape (126–272 s).
+Takeaways: in the Dunsan grid one closed road rarely shuts anything; placing often hurts because officers must route around barricades too; planned trips pull officers out of the cordon. Effect is within noise — a learned/searched placement (GA over placement features, scored on the same paired seeds) is the next step if this is pursued.
+Ops: the Vercel CLI token in ~/.local/share/com.vercel.cli/auth.json expired on 2026-10-13; `run_public.sh`'s env update needs `vercel login` again (git pushes and the deploy hook still deploy).
