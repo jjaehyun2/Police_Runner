@@ -80,7 +80,8 @@
 
       <details class="server">
         <summary>서버 주소</summary>
-        <div class="row"><input id="apiBase" type="url" placeholder="https://…" /><button type="button" class="btn" id="apiSave">저장</button></div>
+        <div class="row"><input id="apiBase" type="url" placeholder="https://your-sumo-api.example.com" aria-label="SUMO API HTTPS 주소" /><button type="button" class="btn" id="apiSave">저장</button></div>
+        <input id="apiToken" type="password" autocomplete="off" placeholder="접근 토큰 (선택, 이 탭 세션에만 저장)" aria-label="SUMO API 접근 토큰" />
         <p class="hint" id="apiHint"></p>
       </details>
     </aside>

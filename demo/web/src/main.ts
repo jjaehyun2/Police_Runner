@@ -17,8 +17,21 @@ const ENGINE: Record<string, string> = { sumo: "SUMO", point: "빠른 시뮬레�
 // ---------------------------------------------------------------------------------------------
 // server address: build-time VITE_API_BASE, overridable in the panel (kept in this browser)
 function readStored(): string | null { try { return localStorage.getItem("apiBase"); } catch { return null; } }
+function readSessionToken(): string { try { return sessionStorage.getItem("apiToken") ?? ""; } catch { return ""; } }
 let apiBase = (readStored() ?? (import.meta.env.VITE_API_BASE as string | undefined) ?? "").replace(/\/$/, "");
+let apiToken = readSessionToken();
 const api = (path: string) => `${apiBase}${path}`;
+function apiHeaders(base: HeadersInit = {}) {
+  const h = new Headers(base);
+  if (apiToken) h.set("X-Demo-Token", apiToken);
+  return h;
+}
+function apiError(context: string, err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  const auth = msg.includes("401") ? " 접근 토큰이 맞는지 확인하세요." : "";
+  const where = apiBase || "현재 페이지와 같은 주소";
+  return `${context} (${msg}). 서버 주소: ${where}.${auth}`;
+}
 
 // ---------------------------------------------------------------------------------------------
 // map
@@ -121,14 +134,14 @@ $("example").addEventListener("click", async () => {
   if (replayMap) { setStatus("error", "녹화 시연에서는 새 배치를 만들 수 없습니다. 서버 주소를 확인하고 지도를 다시 불러오세요."); return; }
   const n = Math.max(2, Math.min(12, Number($<HTMLInputElement>("exampleN").value) || 6));
   try {
-    const r = await fetch(api("/api/example"), { method: "POST", headers: { "content-type": "application/json" },
+    const r = await fetch(api("/api/example"), { method: "POST", headers: apiHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ map: info.name, n, seed: Math.floor(Math.random() * 1000) }) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json() as { police: LatLon[]; fugitive: LatLon };
     police = d.police.map((p) => L.latLng(p[0], p[1]));
     fugitive = L.latLng(d.fugitive[0], d.fugitive[1]);
     showPlacement(); drawPlacement();
-  } catch (err) { setStatus("error", `예시 배치를 불러오지 못했습니다 (${(err as Error).message}). 서버 주소를 확인하세요.`); }
+  } catch (err) { setStatus("error", apiError("예시 배치를 불러오지 못했습니다", err)); }
 });
 
 function showPlacement() {
@@ -145,20 +158,21 @@ function showPlacement() {
 // map data
 async function loadMaps() {
   try {
-    const r = await fetch(api("/api/maps"));
+    const r = await fetch(api("/api/maps"), { headers: apiHeaders() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const list = await r.json() as { name: string; label: string }[];
     const sel = $<HTMLSelectElement>("mapSelect");
+    if (!list.length) throw new Error("지도 목록이 비어 있습니다");
     sel.innerHTML = list.map((m) => `<option value="${m.name}">${m.label}</option>`).join("");
-    sel.onchange = () => loadMap(sel.value);
+    sel.onchange = () => loadMap(sel.value).catch((err) => setStatus("error", apiError("지도를 불러오지 못했습니다", err)));
     await loadMap(list[0].name);
     setStatus("idle", "지도를 클릭해 경찰차와 도주차를 배치하세요");
   } catch (err) {
-    setStatus("error", `서버에 연결하지 못했습니다 (${(err as Error).message}). 녹화된 SUMO 시연은 재생할 수 있습니다.`);
+    setStatus("error", `${apiError("서버에 연결하지 못했습니다", err)} 녹화된 SUMO 시연은 재생할 수 있습니다.`);
   }
 }
 async function loadMap(name: string) {
-  const r = await fetch(api(`/api/map/${name}`));
+  const r = await fetch(api(`/api/map/${name}`), { headers: apiHeaders() });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   info = await r.json() as MapInfo;
   replayMap = false;
@@ -217,7 +231,7 @@ async function startRun() {
   setStatus("running", opts.engine === "sumo" && body.traffic ? "SUMO 준비 중 · 일반 교통을 먼저 채웁니다" : "계산 중…");
   map.removeLayer(placeLayer);
   try {
-    const res = await fetch(api("/api/run"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch(api("/api/run"), { method: "POST", headers: apiHeaders({ "content-type": "application/json" }), body: JSON.stringify(body) });
     if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
     const reader = res.body.getReader();
     const dec = new TextDecoder();
@@ -233,7 +247,7 @@ async function startRun() {
       }
     }
   } catch (err) {
-    run.error = (err as Error).message;
+    run.error = apiError("실행 요청 실패", err);
   }
   run.done = true;
   $<HTMLButtonElement>("run").disabled = false;
@@ -417,12 +431,24 @@ function renderHistory() {
 
 // ---------------------------------------------------------------------------------------------
 // server address control
+function renderApiHint() {
+  const origin = apiBase || "현재 페이지와 같은 주소";
+  const secureNote = apiBase && !apiBase.startsWith("https://") ? " · Vercel 배포에서는 HTTPS 주소를 권장합니다" : "";
+  const tokenNote = apiToken ? " · 토큰은 이 탭 세션에만 저장됨" : " · 토큰이 있으면 X-Demo-Token 헤더로 전송";
+  $("apiHint").textContent = `${origin}${secureNote}${tokenNote}`;
+}
 $<HTMLInputElement>("apiBase").value = apiBase;
-$("apiHint").textContent = apiBase ? `현재: ${apiBase}` : "비어 있으면 이 페이지와 같은 주소의 /api 를 씁니다.";
+$<HTMLInputElement>("apiToken").value = apiToken;
+renderApiHint();
 $("apiSave").addEventListener("click", () => {
   apiBase = $<HTMLInputElement>("apiBase").value.trim().replace(/\/$/, "");
+  apiToken = $<HTMLInputElement>("apiToken").value.trim();
   try { localStorage.setItem("apiBase", apiBase); } catch { /* storage unavailable: keep for this visit */ }
-  $("apiHint").textContent = apiBase ? `현재: ${apiBase}` : "비어 있으면 이 페이지와 같은 주소의 /api 를 씁니다.";
+  try {
+    if (apiToken) sessionStorage.setItem("apiToken", apiToken);
+    else sessionStorage.removeItem("apiToken");
+  } catch { /* storage unavailable: keep in memory for this visit */ }
+  renderApiHint();
   loadMaps();
 });
 
