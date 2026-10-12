@@ -167,7 +167,9 @@ class TargetPolicy:
 
     def __init__(self, spec: str, network, n_police: int) -> None:
         import multi_eval
-        self.team = multi_eval.team_for(spec, network, n_police).policy
+        bridge = multi_eval.team_for(spec, network, n_police)
+        self.team = bridge.policy
+        self.planner = getattr(bridge, "planner", None)          # learned barricade head (bmacro: specs)
         self.n = n_police
         self.stash: dict = {}
         if hasattr(self.team, "_assign"):                       # encirclement: capture its targets
@@ -219,6 +221,7 @@ class SumoPursuit:
         for s in self.network.segments:
             self._out.setdefault(s.start_id, []).append(s.id)
         self.policy = TargetPolicy(spec, self.network, len(case.police))
+        carry_barricades = carry_barricades or self.policy.planner is not None
         self.barricades = list(barricades)
         self.closed = {sid for b in self.barricades for sid, _ in b.at}
         self.kit = [bool(carry_barricades)] * len(case.police)     # officer still carries its barricade
@@ -487,7 +490,9 @@ class SumoPursuit:
     def _deploy(self, goals, t: float) -> list:
         """Place or plan carried barricades (see the module docstring); returns the goals with
         sent officers heading to their road and freed officers chasing."""
-        if any(self.kit):
+        if any(self.kit) and self.policy.planner is not None:
+            self._deploy_learned(goals, t)
+        elif any(self.kit):
             vp = self.case.vp
             reaches = [self._reach(v) for v in self.police_ids]
             freach = self._reach(self.fid)
@@ -620,6 +625,32 @@ class SumoPursuit:
             else:
                 out.append(g)
         return out
+
+    def _deploy_learned(self, goals, t: float) -> None:
+        """Carried barricades placed by the checkpoint's learned head (barricade.Planner)."""
+        busy = set()
+        for v in self.police_ids + [self.fid]:
+            cur = self._current_edge(v)
+            if cur is not None:
+                sg = self.seg[_edge_sid(cur)]
+                busy |= {(sg.start_id, sg.end_id), (sg.end_id, sg.start_id)}
+        d = self.policy.planner.decide(
+            self.pg, self.closed, [self._reach(v) for v in self.police_ids], self._reach(self.fid), busy,
+            kit=self.kit, pursuing=[g[0] == "pursue" for g in goals],
+            holding=[g[1] if g[0] == "hold" else None for g in goals], step=int(t), max_steps=self.case.max_steps)
+        if d is None:
+            return
+        k, u, v = d
+        bar = barricade_on(self.network, u, v)
+        idx = len(self.barricades)
+        self.barricades.append(bar)
+        sids = [sid for sid, _ in bar.at]
+        self.closed.update(sids)
+        _close(self.pg, sids)
+        self._place_barricade(idx, bar)
+        self.kit[k] = False
+        self._target.clear()
+        self.deployments.append(dict(t=t, officer=k, node=u, to=v, freed=False, kind="learned"))
 
     def _choke_candidates(self, freach, open_exits) -> list:
         """Bottleneck roads of the fugitive's escape: in its shortest-path tree (officers' map), the
@@ -781,6 +812,8 @@ class SumoPursuit:
                         police_pl.append(pl); headings.append(self.heading_end[sid])
                     fug_pl, fsid = self._placement(self.fid)
                     fnode = int(self.seg[fsid].end_id)
+                    if self.barricades and hasattr(self.policy.team, "g"):
+                        self.policy.team.g, self.policy.team.closed = self.pg, self.closed
                     goals = self.policy.targets(tuple(police_pl), fug_pl, int(t), self.case.max_steps, tuple(headings))
                     if any(self.kit) or self.released:
                         goals = self._deploy(goals, t)

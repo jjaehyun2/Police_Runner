@@ -11,6 +11,12 @@ one instance and one RNG stream per fugitive), generalised to M fugitives:
     boundary-crossing segment (capture in the same step wins), SUCCEEDS when
     every fugitive is captured, and times out at max_steps.
 
+Carried barricades (carry=True, single fugitive): each officer carries one; ``place(k, u, v)``
+closes road u-v (both directions) a little in from u. Officers route on ``pg`` (closed roads
+removed, a private copy made at the first placement); the fugitive only learns of a barricade
+within barricade.SIGHT_M, then drops that road from its own map ``fg``, re-plans, and turns back if
+it is on that road heading into it. Nobody drives through a barricade.
+
 Team policies implement ``act(sim) -> list[provider]`` where a provider is the
 env-style callable ``(agent_id, intersection_id, ordered_segment_ids, hop) -> slot``
 (STAY_ACTION = stay); it is only consulted for officers that are parked.
@@ -63,9 +69,17 @@ def graph_of(network: ModelNetwork) -> _Graph:
 
 
 class MultiPursuitSim:
-    def __init__(self, network: ModelNetwork, case: MultiCase, record: bool = False) -> None:
+    def __init__(self, network: ModelNetwork, case: MultiCase, record: bool = False, carry: bool = False) -> None:
         self.network, self.case = network, case
         self.g = graph_of(network)
+        self.kit = [carry] * len(case.police)              # officer still carries its barricade
+        self.bars: list[tuple] = []                         # (xy, {segment: fraction})
+        self.closed: set[int] = set()
+        self.bar_frac: dict[int, list[float]] = {}
+        self.pg = self.fg = self.g                          # officers' / fugitive's road maps
+        self.known: set[int] = set()
+        self.known_sids: set[int] = set()
+        self.deployments: list[dict] = []
         self.seg = {s.id: s for s in network.segments}
         self.inter = {i.id: i for i in network.intersections}
         self.seg_len = {s.id: _geometry_length(s.geometry_xy) for s in network.segments}
@@ -109,6 +123,11 @@ class MultiPursuitSim:
         s = self.seg[v.segment_id]
         length = self.seg_len[v.segment_id]
         p = 1.0 if length <= 0 else v.progress + v.speed / length
+        if v.segment_id in self.bar_frac:                 # cannot drive through a barricade
+            ahead = [f for f in self.bar_frac[v.segment_id] if f > v.progress + 1e-6]
+            if ahead and p >= min(ahead):
+                v.progress = max(v.progress, min(ahead) - 1e-4)
+                return False
         if p < 1.0:
             v.progress = p
             return False
@@ -118,14 +137,18 @@ class MultiPursuitSim:
             v.heading = h
         return bool(s.crosses_boundary)
 
-    def _resolve(self, v: _Vehicle, provider: Provider) -> None:
+    def _resolve(self, v: _Vehicle, provider: Provider, exclude: set | None = None) -> None:
         hops = 0
         for hop in range(self.hop_cap + 1):
             node = v.intersection_id
             ordered = ordered_outgoing_segment_ids(self.network, node, v.heading)
+            if exclude:
+                ordered = [o for o in ordered if o not in exclude]
             a = int(provider(v.agent_id, node, ordered, hop))
             if a == STAY_ACTION or a < 0 or a >= len(ordered):
                 return
+            if v.agent_id.startswith("police") and ordered[a] in self.closed:
+                return                                      # officers never drive into a barricade
             s = self.seg[ordered[a]]
             if not self.inter[node].virtual:
                 v.physical_anchor = node
@@ -147,7 +170,60 @@ class MultiPursuitSim:
                 self.alive[j] = False
                 self.capture_steps.append(self.step_count)
 
+    # -- carried barricades --------------------------------------------------------------------
+    def busy(self) -> set:
+        """Node pairs (both directions) of the roads a chase vehicle is on."""
+        out = set()
+        for v in self.police + [f for j, f in enumerate(self.fugs) if self.alive[j]]:
+            if v.mode == "segment" and v.segment_id is not None:
+                s = self.seg[v.segment_id]
+                out |= {(s.start_id, s.end_id), (s.end_id, s.start_id)}
+        return out
+
+    def place(self, k: int, u: int, v: int) -> None:
+        import barricade
+        xy, at = barricade.placement(self.network, u, v)
+        self.bars.append((xy, at))
+        for sid, f in at.items():
+            self.bar_frac.setdefault(sid, []).append(f)
+        new = [sid for sid in at if sid not in self.closed]
+        self.closed.update(at)
+        if self.pg is self.g:
+            self.pg = barricade.private_graph(self.network, self.closed)
+        elif new:
+            barricade.close(self.pg, new)
+        self.kit[k] = False
+        self.deployments.append(dict(step=self.step_count, officer=k, node=u, to=v))
+
+    def _see_barricades(self) -> None:
+        import barricade
+        f = self.fugs[0]
+        fxy = self.position(f)
+        new = [i for i, (xy, _) in enumerate(self.bars) if i not in self.known and math.dist(xy, fxy) <= barricade.SIGHT_M]
+        if not new:
+            return
+        sids = set()
+        for i in new:
+            self.known.add(i)
+            sids.update(s for s in self.bars[i][1] if s not in self.known_sids)
+        self.known_sids |= sids
+        if self.fg is self.g:
+            self.fg = barricade.private_graph(self.network, self.known_sids)
+        else:
+            barricade.close(self.fg, sids)
+        ev = self.evaders[0]
+        ev.g, ev.goal = self.fg, None
+        if f.mode == "segment" and f.segment_id in self.known_sids:  # heading into it: turn back
+            s = self.seg[f.segment_id]
+            if any(fr > f.progress for fr in self.bar_frac.get(f.segment_id, [])):
+                rev = next((o.id for o in self.network.segments if o.start_id == s.end_id and o.end_id == s.start_id), None)
+                if rev is not None:
+                    f.segment_id, f.progress = rev, 1.0 - f.progress
+                    ev.prev_node = s.end_id
+
     def step(self, providers: Sequence[Provider]) -> None:
+        if self.bars and self.alive[0]:
+            self._see_barricades()
         pxy = self.police_xy()
         fug_prov = {j: self.evaders[j].env_provider(self.network, pxy) for j in self.alive_fugitives()}
         for v in self.police:
@@ -158,7 +234,7 @@ class MultiPursuitSim:
                 self._resolve(v, providers[k])
         for j, prov in fug_prov.items():
             if self.fugs[j].mode == "parked":
-                self._resolve(self.fugs[j], prov)
+                self._resolve(self.fugs[j], prov, self.known_sids)
         self.step_count += 1
         self._check_capture()                       # capture in the same step beats escape
         if any(self.alive[j] for j in crossed):
@@ -221,8 +297,9 @@ class RecommendBridge:
     OSMRoadPursuitEnv._placement, and an officer's integer action applies only when it was parked
     with a live choice when the recommendation was made (hop 0; later virtual hops stay)."""
 
-    def __init__(self, team_policy) -> None:
+    def __init__(self, team_policy, planner=None) -> None:
         self.policy = team_policy
+        self.planner = planner                       # barricade.Planner (carried barricades)
 
     @staticmethod
     def placement(sim: "MultiPursuitSim", v: _Vehicle):
@@ -238,11 +315,26 @@ class RecommendBridge:
         return VehiclePlacement(intersection_id=anchor)
 
     def act(self, sim: "MultiPursuitSim") -> list[Provider]:
+        if sim.bars and hasattr(self.policy, "g"):     # officers plan on the map with closed roads removed
+            self.policy.g, self.policy.closed = sim.pg, sim.closed
         recs = self.policy.recommend(
             police=tuple(self.placement(sim, v) for v in sim.police),
             fugitive=self.placement(sim, sim.fugs[0]), step=sim.step_count, max_steps=sim.case.max_steps,
             incoming_headings=tuple(v.heading for v in sim.police),
         )
+        if self.planner is not None and any(sim.kit) and sim.alive[0]:
+            roles = getattr(self.policy, "roles", None)
+            targets = getattr(self.policy, "targets", None)
+            n = len(sim.police)
+            pursuing = [bool(roles and roles[k] == 0) for k in range(n)]
+            holding = [targets[k] if roles and roles[k] != 0 and targets else None for k in range(n)]
+            d = self.planner.decide(sim.pg, sim.closed, [sim.reach(v) for v in sim.police], sim.reach(sim.fugs[0]),
+                                    sim.busy(), kit=sim.kit, pursuing=pursuing, holding=holding,
+                                    step=sim.step_count, max_steps=sim.case.max_steps)
+            if d is not None:
+                sim.place(*d)
+                if hasattr(self.policy, "g"):
+                    self.policy.g, self.policy.closed = sim.pg, sim.closed
         providers = []
         for v, rec in zip(sim.police, recs):
             live = v.mode == "parked" and len(ordered_outgoing_segment_ids(sim.network, v.intersection_id, v.heading)) > 0

@@ -119,6 +119,7 @@ class MacroTeamPolicy:
         self.n = 0                               # team size, set from the first observation
         self._size(POLICE_COUNT)
         self._prev: dict[int, int] = {}
+        self.closed: set[int] = set()            # barricaded segments (set by the simulator)
         self._fug_hist: list[tuple[float, float]] = []
         self.log: list[dict] = []                # decisions (for training)
 
@@ -141,6 +142,8 @@ class MacroTeamPolicy:
         officer_from = [g.dist_from(n) for n, _ in officer]
         rows = []
         for e in self.exits:
+            if self.closed and all(o in self.closed for o in self.network_out_crossing(e)):
+                continue                                  # sealed by a barricade
             df = f_from.get(e)
             if df is None or foff + df > self._H:
                 continue
@@ -161,6 +164,14 @@ class MacroTeamPolicy:
             if len(chosen) >= N_CANDIDATES - 1:
                 break
         return freach, foff, f_from, officer, officer_from, chosen
+
+    def network_out_crossing(self, e: int) -> list[int]:
+        if not hasattr(self, "_crossing"):
+            self._crossing: dict[int, list[int]] = {}
+            for s in self.network.segments:
+                if s.crosses_boundary:
+                    self._crossing.setdefault(s.start_id, []).append(s.id)
+        return self._crossing.get(e, [])
 
     def _intercept(self, k, path, f_from, foff, officer, officer_from) -> tuple[int, float, float]:
         """(node, my margin s, my travel time s) on a route for officer k."""
@@ -266,6 +277,8 @@ class MacroTeamPolicy:
         prev = self._prev.get(k)
         best, best_cost = None, _INF
         for slot, seg_id in enumerate(ordered):
+            if seg_id in self.closed:
+                continue
             end = self.g.seg[seg_id].end_id
             dn = dist_to.get(end)
             if dn is None:
@@ -275,12 +288,15 @@ class MacroTeamPolicy:
                 best_cost, best = cost, slot
         if best is None:
             txy = self.g.pos[target]
-            best = min(range(len(ordered)), key=lambda s: math.dist(self.g.pos[self.g.seg[ordered[s]].end_id], txy))
+            best = min(range(len(ordered)), key=lambda s: (ordered[s] in self.closed,
+                                                           math.dist(self.g.pos[self.g.seg[ordered[s]].end_id], txy)))
         return best
 
     def _pursue_slot(self, ordered, fxy) -> int:
         best, best_cost = 0, _INF
         for slot, seg_id in enumerate(ordered):
+            if seg_id in self.closed:
+                continue
             cost = math.dist(self.g.pos[self.g.seg[seg_id].end_id], fxy)
             if cost < best_cost:
                 best_cost, best = cost, slot

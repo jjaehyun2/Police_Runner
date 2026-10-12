@@ -40,7 +40,8 @@ def _run(args):
     tag, idx, n_p, n_f, pol = args
     net = _W["net"]
     case = make_case(net, tag, idx, n_p, n_f)
-    r = multi_sim.MultiPursuitSim(net, case).run(team_for(pol, net, n_p))
+    team = team_for(pol, net, n_p)
+    r = multi_sim.MultiPursuitSim(net, case, carry=getattr(team, "planner", None) is not None).run(team)
     return idx, r.outcome, r.steps, r.captured
 
 
@@ -59,7 +60,18 @@ class AnySizeEncirclement(baselines.EncirclementPolice):
 
 def team_for(spec, net, n_police):
     """Multi-fugitive policy by name, or any common._build single-fugitive spec (one fugitive,
-    any team size) run through RecommendBridge."""
+    any team size) run through RecommendBridge. ``bmacro:<ckpt>`` = rmacro role policy plus the
+    checkpoint's barricade head (each officer then carries one barricade)."""
+    if spec.startswith("bmacro:"):
+        import torch
+        import barricade
+        from obs_ext import exit_nodes
+        bridge = team_for("rmacro:" + spec[7:], net, n_police)
+        head = barricade.load_head(torch.load(spec[7:], map_location="cpu", weights_only=False))
+        if head is not None:
+            bridge.planner = barricade.Planner(net, head, vp=common.POLICE_SPEED_MPS, vf=common.FUGITIVE_SPEED_MPS,
+                                               exits=exit_nodes(net))
+        return bridge
     if spec in multi_policies.POLICIES:
         return multi_policies.POLICIES[spec](net)
     pol = common._build(spec, net)["team_policy"]
@@ -82,15 +94,19 @@ def _run_mixed(args):
     n = ns[idx % len(ns)]
     net = _W["net"]
     case = make_case(net, tag, idx, n, 1)
-    r = multi_sim.MultiPursuitSim(net, case).run(team_for(spec, net, n))
-    return idx, n, r.outcome, r.steps
+    team = team_for(spec, net, n)
+    sim = multi_sim.MultiPursuitSim(net, case, carry=getattr(team, "planner", None) is not None)
+    r = sim.run(team)
+    return idx, n, r.outcome, r.steps, len(sim.deployments)
 
 
-def evaluate_mixed(spec, net_name, tag, episodes, ns, workers=int(os.environ.get("ME_WORKERS", "40"))):
-    """One fugitive; episode i uses ns[i % len(ns)] officers. -> {i: (n, outcome, steps)}."""
+def evaluate_mixed(spec, net_name, tag, episodes, ns, workers=int(os.environ.get("ME_WORKERS", "40")),
+                   detail=False):
+    """One fugitive; episode i uses ns[i % len(ns)] officers. -> {i: (n, outcome, steps)}
+    (detail: + barricades placed)."""
     with get_context("fork").Pool(workers, initializer=_init, initargs=(net_name,)) as p:
         res = p.map(_run_mixed, [(tag, i, tuple(ns), spec) for i in range(episodes)], chunksize=1)
-    return {i: (n, o, s) for i, n, o, s in res}
+    return {i: ((n, o, s, b) if detail else (n, o, s)) for i, n, o, s, b in res}
 
 
 def summary(res, n_f):
