@@ -6,8 +6,9 @@
 # - API server: uvicorn on 127.0.0.1:8600, CORS limited to PURSUIT_CORS (optional token: REQUIRE_TOKEN=1).
 # - Tunnel: a Cloudflare quick tunnel (no account). Its https://*.trycloudflare.com address changes
 #   whenever cloudflared restarts; the current one is written to demo/logs/tunnel_url.
-# - REDEPLOY_ON_URL_CHANGE=1 rebuilds the Vercel production deployment with the new address
-#   (VITE_API_BASE) using the logged-in Vercel CLI, from $DEPLOY_DIR.
+# - REDEPLOY_ON_URL_CHANGE=1 stores the new address as the Vercel project's VITE_API_BASE (logged-in
+#   Vercel CLI, run from $DEPLOY_DIR) and rebuilds production from GitHub through the deploy hook URL
+#   kept in demo/logs/deploy_hook (Vercel project -> Settings -> Git -> Deploy Hooks).
 set -u
 ROOT=/workspace/cluster
 LOGS=$ROOT/demo/logs
@@ -47,7 +48,9 @@ tunnel() {
       echo "$url" > "$LOGS/tunnel_url"
       echo "$(date -Is) tunnel up: $url" >> "$LOGS/supervisor.log"
       if [ "${REDEPLOY_ON_URL_CHANGE:-0}" = 1 ] && [ "$url" != "$old" ]; then
-        (cd "$DEPLOY_DIR" && npx -y vercel@59.26.0 deploy --prod --yes --build-env VITE_API_BASE="$url") >> "$LOGS/deploy.log" 2>&1 \
+        (cd "$DEPLOY_DIR" && for env in production preview; do
+           printf %s "$url" | npx -y vercel@44 env add VITE_API_BASE "$env" --force || exit 1; done \
+         && curl -fsS -X POST "$(cat "$LOGS/deploy_hook")") >> "$LOGS/deploy.log" 2>&1 \
           && echo "$(date -Is) redeployed with $url" >> "$LOGS/supervisor.log"
       fi
     fi
