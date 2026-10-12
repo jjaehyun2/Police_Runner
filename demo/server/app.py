@@ -6,7 +6,8 @@
   GET  /api/map/{name}                -> roads (lat/lon), exits, bounds, road count
   POST /api/example                   -> an example start {police:[[lat,lon]], fugitive:[lat,lon]}
   POST /api/run                       -> NDJSON stream: setup, frame (one per simulated second), end
-                                         (optional barricades [[lat,lon]]: closed roads, SUMO only)
+                                         (optional barricades [[lat,lon]]: closed roads, and
+                                          carry_barricades: one per patrol car, placed by the team; SUMO only)
 
 Run:  uvicorn app:app --host 0.0.0.0 --port 8600   (from demo/server, with the project venv)
 Env:  PURSUIT_MAX_RUNS (concurrent simulations, default 6), PURSUIT_CORS (comma list, default *),
@@ -136,7 +137,8 @@ def run_sumo(m: MapData, case, spec: str, req: "RunRequest", emit, barricades=()
         role, tgt = _goal_payload(m, fr["goals"])
         reg, ox = m.region_bits([tuple(r) for r in fr["reach"]], getattr(holder.get("sim"), "pg", None))
         out = dict(type="frame", t=fr["t"], p=[ll(q) for q in fr["p"]], f=ll(fr["f"]), role=role, tgt=tgt,
-                   reg=reg, open=len(ox), ox=ox, bk=fr.get("known", []))
+                   reg=reg, open=len(ox), ox=ox, bk=fr.get("known", []), kit=fr.get("kit", []),
+                   bars=[ll(q) for q in fr.get("bars", [])])
         if "bg" in fr:
             out["bg"] = [ll(q) for q in fr["bg"][:600]]
         emit(out)
@@ -144,7 +146,7 @@ def run_sumo(m: MapData, case, spec: str, req: "RunRequest", emit, barricades=()
     with _START_LOCK:
         sim = SumoPursuit(m.name, case, spec, profile=req.profile, traffic=req.traffic,
                           ignore_red=req.ignore_red, on_frame=on_frame, background=req.traffic is not None,
-                          barricades=barricades)
+                          barricades=barricades, carry_barricades=req.carry_barricades)
     holder["sim"] = sim
     r = sim.run()
     return dict(outcome=r.outcome, seconds=round(r.seconds, 2))
@@ -212,6 +214,7 @@ class RunRequest(BaseModel):
     police: list[tuple[float, float]] = Field(..., min_length=1, max_length=12)
     fugitive: tuple[float, float]
     barricades: list[tuple[float, float]] = Field(default_factory=list, max_length=20)
+    carry_barricades: bool = False                       # each patrol car carries one and places it itself
     policy: Literal["ga", "encircle", "greedy", "assign"] = "ga"
     engine: Literal["sumo", "point"] = "sumo"
     profile: Literal["ideal", "real"] = "ideal"
@@ -258,7 +261,7 @@ async def run(req: RunRequest):
     fug = m.snap(req.fugitive, np.array([n for n in m.fugitive_nodes if n not in police]))
     seed = abs(hash((tuple(police), fug))) % 2**31
     case = multi_sim.MultiCase(tuple(police), (fug,), (seed,), SPEED, SPEED, max_steps=req.max_seconds)
-    if req.barricades and req.engine != "sumo":
+    if (req.barricades or req.carry_barricades) and req.engine != "sumo":
         raise HTTPException(422, "바리케이드는 SUMO 시뮬레이터에서만 쓸 수 있습니다.")
     from sumo_sim import barricade_at
     barricades = []
@@ -282,7 +285,7 @@ async def run(req: RunRequest):
         try:
             emit(dict(type="setup", police=[ll(m.pos[n]) for n in police], fugitive=ll(m.pos[fug]),
                       policy=label, engine=req.engine, profile=req.profile, traffic=req.traffic,
-                      barricades=[ll(b.xy) for b in barricades]))
+                      barricades=[ll(b.xy) for b in barricades], carry_barricades=req.carry_barricades))
             runner = run_sumo if req.engine == "sumo" else run_point
             end = runner(m, case, spec, req, emit, tuple(barricades))
             emit(dict(type="end", **end))

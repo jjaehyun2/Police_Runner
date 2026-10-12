@@ -6,7 +6,7 @@ import "./style.css";
 // types
 type LatLon = [number, number];
 interface MapInfo { name: string; label: string; roads: LatLon[][]; exits: LatLon[]; bounds: [LatLon, LatLon] }
-interface Frame { t: number; p: LatLon[]; f: LatLon; role: number[]; tgt: (LatLon | null)[]; reg: string; open: number; ox: LatLon[]; bg?: LatLon[]; bk?: number[] }
+interface Frame { t: number; p: LatLon[]; f: LatLon; role: number[]; tgt: (LatLon | null)[]; reg: string; open: number; ox: LatLon[]; bg?: LatLon[]; bk?: number[]; bars?: LatLon[]; kit?: boolean[] }
 interface Setup { police: LatLon[]; fugitive: LatLon; policy: string; engine: string; profile: string; traffic: number | null; barricades?: LatLon[] }
 interface Run { id: number; mapInfo: MapInfo; setup: Setup | null; frames: Frame[]; outcome: string | null; seconds: number | null; error: string | null; label: string; done: boolean; recorded?: boolean }
 
@@ -85,7 +85,7 @@ let mode: Mode = "police";
 let police: L.LatLng[] = [];
 let barricades: L.LatLng[] = [];
 let fugitive: L.LatLng | null = null;
-const opts = { policy: "ga", engine: "sumo", profile: "ideal", traffic: "" as string, ignoreRed: false };
+const opts = { policy: "ga", engine: "sumo", profile: "ideal", traffic: "" as string, ignoreRed: false, carry: false };
 const runs: Run[] = [];
 let current: Run | null = null;
 let cursor = 0;            // playback time in frames (float)
@@ -108,6 +108,7 @@ seg("engineSeg", "engine", syncOpts);
 seg("profileSeg", "profile", syncOpts);
 seg("trafficSeg", "traffic");
 $<HTMLInputElement>("ignoreRed").addEventListener("change", (e) => { opts.ignoreRed = (e.target as HTMLInputElement).checked; });
+$<HTMLInputElement>("carry").addEventListener("change", (e) => { opts.carry = (e.target as HTMLInputElement).checked; });
 function syncOpts() {
   $("sumoOpts").hidden = opts.engine !== "sumo";
   $("realOpts").hidden = !(opts.engine === "sumo" && opts.profile === "real");
@@ -263,6 +264,7 @@ async function startRun() {
   const body = {
     map: info.name, police: police.map((p) => [p.lat, p.lng]), fugitive: [fugitive.lat, fugitive.lng],
     barricades: barricades.map((p) => [p.lat, p.lng]),
+    carry_barricades: opts.engine === "sumo" && opts.carry,
     policy: opts.policy, engine: opts.engine, profile: opts.profile,
     traffic: opts.engine === "sumo" && opts.profile === "real" && opts.traffic ? Number(opts.traffic) : null,
     ignore_red: opts.engine === "sumo" && opts.profile === "real" && opts.ignoreRed,
@@ -270,7 +272,7 @@ async function startRun() {
   const policyLabel = document.querySelector<HTMLButtonElement>(`#policySeg button[data-v="${opts.policy}"]`)?.textContent ?? opts.policy;
   const cond = opts.engine === "sumo" ? (opts.profile === "real" ? `실제 도로${body.traffic ? (body.traffic < 1 ? "·혼잡" : "·보통") : ""}${body.ignore_red ? "·긴급" : ""}` : "신호 없음") : "";
   const run: Run = { id: ++runSeq, mapInfo: info, setup: null, frames: [], outcome: null, seconds: null, error: null, done: false,
-    label: `${policyLabel} · ${ENGINE[opts.engine]}${cond ? ` (${cond})` : ""} · 경찰 ${police.length}대${barricades.length ? ` · 바리케이드 ${barricades.length}` : ""}` };
+    label: `${policyLabel} · ${ENGINE[opts.engine]}${cond ? ` (${cond})` : ""} · 경찰 ${police.length}대${barricades.length ? ` · 바리케이드 ${barricades.length}` : ""}${body.carry_barricades ? " · 차량 바리케이드" : ""}` };
   runs.unshift(run); select(run); renderHistory();
   $<HTMLButtonElement>("run").disabled = true;
   setStatus("running", opts.engine === "sumo" && body.traffic ? "SUMO 준비 중 · 일반 교통을 먼저 채웁니다" : "계산 중…");
@@ -414,7 +416,7 @@ function redrawFrame(force: boolean) {
       L.rectangle(L.latLng(t).toBounds(16), { renderer: canvas, color: tc, weight: 2, fill: false, interactive: false }).addTo(targetLayer);
     });
     barLayer.clearLayers();
-    const bars = current.setup?.barricades ?? [];
+    const bars = a.bars ?? current.setup?.barricades ?? [];
     $("barLegend").hidden = !bars.length;
     bars.forEach((q, k) => L.marker(q, { icon: barIcon(a.bk?.includes(k) ?? false), interactive: false, keyboard: false }).addTo(barLayer));
     bgLayer.clearLayers();
@@ -433,7 +435,8 @@ function panel(a: Frame, i: number) {
   const rows = a.p.map((p, k) => {
     const d = L.latLng(p).distanceTo(L.latLng(a.f));
     const tag = a.role[k] === 0 ? '<span class="role pursue">직접 추격</span>' : '<span class="role hold">탈출로 차단</span>';
-    return `<tr><td class="n"><span class="num">${k + 1}</span></td><td>${tag}</td><td class="d">${Math.round(d)} m</td></tr>`;
+    const kit = !a.kit?.length ? "" : a.kit[k] ? ' <i class="barr-key" title="바리케이드 보유"></i>' : ' <span class="placed">설치함</span>';
+    return `<tr><td class="n"><span class="num">${k + 1}</span></td><td>${tag}${kit}</td><td class="d">${Math.round(d)} m</td></tr>`;
   });
   $("officers").innerHTML = rows.join("");
   spark(i);

@@ -17,6 +17,23 @@ stopped obstacle there, so traffic queues behind it. The police placed them, so 
 around them from the start; the fugitive only learns of one once it is within BARRICADE_SIGHT_M,
 then drops that road from its own map, re-plans, and turns back if it is already driving towards it.
 
+Carried barricades (carry_barricades=True, prototype): every patrol car carries one; placing it
+closes one road at an intersection the officer reached before the fugitive could (all judged on the
+fugitive's escape region: the intersections it reaches before every officer, and the open exits in it).
+  planned    (off by default) while exits are open, every PLAN_EVERY_S an officer still carrying one (never the one
+             closest to the fugitive) is sent ahead to seal one: either the exit road itself or the
+             earliest road on the fugitive's shortest route to it that the officer reaches first.
+             The candidate that shuts the most open exits wins (ties: the quickest officer). On
+             arrival it places the barricade if that still shrinks the escape region (judged as if
+             the officer drove on), then rejoins its role.
+  at a node  an officer within DEPLOY_REACH_M of an intersection it controls places it there when a
+             road there shuts an open exit; "stand-in": when it can replace the officer holding that
+             intersection (no larger region without that officer), freeing it for the chase;
+             "leave": when the officer is about to leave the intersection it was holding, on the
+             road that keeps the region smallest after it has gone; "pass" (off by default): any
+             intersection it passes, when a road there cuts the region by PASS_MIN_CUT.
+At most one placement per second for the whole team.
+
 Outcomes as in multi_sim: success when an officer is within capture_radius_m of the fugitive
 (checked every SUMO step), escape when the fugitive completes a boundary-crossing edge,
 timeout at case.max_steps seconds.
@@ -46,6 +63,19 @@ from pursuit_evasion_rl.research.policies.baselines import STAY_ACTION, GoalEvad
 
 VISION_M = 150.0
 BARRICADE_SIGHT_M = 80.0
+DEPLOY_REACH_M = 30.0            # an officer this close to an intersection may barricade a road there
+DEPLOY_OFFSET_M = 20.0           # barricade this far into the road from that intersection
+# which placement rules are on: leave, stand-in (default); planned, pass (tried, see HANDOFF: they cost more
+# than they gain on daejeon_demo, as each closed road also slows the officers)
+BARRICADE_RULES = set(os.environ.get("SUMO_BARRICADE_RULES", "leave,stand-in").split(","))
+PASS_MIN_CUT = float(os.environ.get("SUMO_BARRICADE_PASS_CUT", "0.05"))  # "pass": region share a road must cut
+PLAN_EVERY_S = 4                 # how often a barricade task is planned
+PLAN_MAX_TRIP_S = 40.0           # carriers are only sent this far
+PLAN_MIN_GAIN = 0.1              # ... to a road that shuts at least this share of the open exits (and 2+)
+PLAN_CANDIDATES = 15
+PLAN_SLACK = 1.5                 # a carrier may be sent if it arrives within this multiple of the
+                                 # fugitive's fastest time there (it rarely drives straight to an exit)
+CAPTURE_MARGIN_S = 25.0 / 16.0
 HOLD_S = 1e6
 PROFILES = {
     # vehicle dynamics per network profile: (accel, decel, emergencyDecel) m/s^2
@@ -101,6 +131,26 @@ def barricade_at(network, xy) -> Barricade:
     return Barricade((float(q[0]), float(q[1])), tuple(at))
 
 
+def barricade_on(network, u: int, v: int, offset_m: float = DEPLOY_OFFSET_M) -> Barricade:
+    """Close the road u-v (both directions) offset_m in from u."""
+    segs = [s for s in network.segments if {s.start_id, s.end_id} == {u, v} and s.start_id != s.end_id]
+    s0 = next(s for s in segs if s.start_id == u) if any(s.start_id == u for s in segs) else segs[0]
+    length = _polyline_length(s0.geometry_xy)
+    d = min(offset_m, 0.4 * length)
+    frac_from_u = d / max(length, 1e-6)
+    pts, run, xy = s0.geometry_xy if s0.start_id == u else s0.geometry_xy[::-1], 0.0, None
+    for a, b in zip(pts, pts[1:]):
+        step = math.dist(a, b)
+        if run + step >= d:
+            w = (d - run) / max(step, 1e-9)
+            xy = (a[0] + w * (b[0] - a[0]), a[1] + w * (b[1] - a[1]))
+            break
+        run += step
+    xy = xy or pts[-1]
+    at = tuple((int(s.id), frac_from_u if s.start_id == u else 1.0 - frac_from_u) for s in segs)
+    return Barricade((float(xy[0]), float(xy[1])), at)
+
+
 def _close(g: _Graph, sids) -> None:
     """Remove directed segments from a private graph copy (and drop its distance caches)."""
     for sid in sids:
@@ -150,13 +200,14 @@ class SumoPursuit:
                  step_length: float = 0.25, record: bool = False, gui: bool = False,
                  traffic: float | None = None, warmup_s: float = 300.0, ignore_red: bool = False,
                  speed_factor: float | None = None, on_frame=None, background: bool = False,
-                 barricades: tuple[Barricade, ...] = ()) -> None:
+                 barricades: tuple[Barricade, ...] = (), carry_barricades: bool = False) -> None:
         """traffic      background demand period (s per random trip; None = empty roads)
         warmup_s     background traffic runs this long before the pursuit starts
         ignore_red   officers and fugitive run red lights / ignore right of way (emergency driving)
         speed_factor multiple of each road's speed limit the pursuit vehicles drive at, capped at
                      vp / vf (default: unlimited in "ideal", 2.0 in "real")
-        barricades   closed roads (see barricade_at)"""
+        barricades   closed roads (see barricade_at)
+        carry_barricades  each officer carries one barricade and places it during the chase"""
         import sumo
         import traci
         self.map_name, self.case, self.profile, self.dt = map_name, case, profile, step_length
@@ -168,11 +219,18 @@ class SumoPursuit:
         for s in self.network.segments:
             self._out.setdefault(s.start_id, []).append(s.id)
         self.policy = TargetPolicy(spec, self.network, len(case.police))
-        self.barricades = tuple(barricades)
+        self.barricades = list(barricades)
         self.closed = {sid for b in self.barricades for sid, _ in b.at}
-        if self.barricades:
+        self.kit = [bool(carry_barricades)] * len(case.police)     # officer still carries its barricade
+        self.released: set[int] = set()                          # officers a barricade stood in for
+        self.deployments: list[dict] = []
+        self.tasks: dict[int, tuple[int, int]] = {}             # officer -> (node, neighbour) road to close
+        self._held: dict[int, int] = {}                          # officer -> intersection it was holding
+        if self.barricades or carry_barricades:
             self.pg = _Graph(self.network)                       # officers' (true) road map
             _close(self.pg, self.closed)
+            from obs_ext import exit_nodes
+            self.exits = exit_nodes(self.network)
             self.fg = _Graph(self.network)                       # the fugitive's map: closes roads as it sees them
         else:
             self.pg = self.fg = self.g
@@ -400,6 +458,198 @@ class SumoPursuit:
         self._uturn, self._uturn_steps, self._uturn_from = f"e{rev[0]}", 0, sid
         self.evader.prev_node = seg.end_id
 
+    # -- carried barricades ----------------------------------------------------------------------
+    def _escape(self, tp: dict, freach, skip: set) -> tuple[int, int]:
+        """(escape-region size, number of open exits) on the officers' map with the node pairs in
+        ``skip`` also closed; ``tp`` = officers' earliest arrival times. The open exits themselves
+        are left in ``self._open``."""
+        import heapq
+        f0, foff = freach
+        g, vf = self.pg, self.case.vf
+        best, heap, region = {f0: foff / vf}, [(foff / vf, f0)], set()
+        while heap:
+            t, u = heapq.heappop(heap)
+            if t > best.get(u, math.inf) or t >= tp.get(u, math.inf) - CAPTURE_MARGIN_S:
+                continue
+            region.add(u)
+            for nb, w in g.fwd[u]:
+                if (u, nb) in skip:
+                    continue
+                nt = t + w / vf
+                if nt < best.get(nb, math.inf):
+                    best[nb] = nt
+                    heapq.heappush(heap, (nt, nb))
+        self._open = [e for e in self.exits
+                      if e in region and any(self.seg[o].crosses_boundary and o not in self.closed
+                                             and (e, self.seg[o].end_id) not in skip for o in self.network_out(e))]
+        return len(region), len(self._open)
+
+    def _deploy(self, goals, t: float) -> list:
+        """Place or plan carried barricades (see the module docstring); returns the goals with
+        sent officers heading to their road and freed officers chasing."""
+        if any(self.kit):
+            vp = self.case.vp
+            reaches = [self._reach(v) for v in self.police_ids]
+            freach = self._reach(self.fid)
+            arrive = [{node: (off + d) / vp for node, d in self.pg.dist_from(n).items()} for n, off in reaches]
+
+            def tp_without(skip_k):
+                out: dict = {}
+                for k, a in enumerate(arrive):
+                    if k == skip_k:
+                        continue
+                    for node, tt in a.items():
+                        if tt < out.get(node, math.inf):
+                            out[node] = tt
+                return out
+
+            tp_all = tp_without(None)
+            base_n, base_open = self._escape(tp_all, freach, set())
+            open_exits = list(self._open)
+            f_from = self.pg.dist_from(freach[0])
+            t_f = lambda node: (freach[1] + f_from[node]) / self.case.vf if node in f_from else math.inf  # noqa: E731
+            busy: dict = {}                                      # road -> officer on it (fugitive: -1)
+            for j, v in enumerate(self.police_ids + [self.fid]):
+                cur = self._current_edge(v)
+                if cur is not None:
+                    sg = self.seg[_edge_sid(cur)]
+                    busy[(sg.start_id, sg.end_id)] = busy[(sg.end_id, sg.start_id)] = j if v != self.fid else -1
+
+            def free_road(k, u, v):
+                who = busy.get((u, v))
+                return who is None or (who == k and reaches[k][1] <= 5.0)
+
+            placed = None
+            # 1) officers at an intersection: carry out a task, or place opportunistically
+            for k, (u, off) in enumerate(reaches):
+                if placed or not self.kit[k] or off > DEPLOY_REACH_M or tp_all.get(u, math.inf) >= t_f(u) - CAPTURE_MARGIN_S:
+                    continue
+                if k in self.tasks and self.tasks[k][0] == u:
+                    tu, tv = self.tasks.pop(k)               # judged as if the officer drove on again
+                    tp_k = tp_without(k)
+                    if free_road(k, tu, tv) and \
+                            self._escape(tp_k, freach, {(tu, tv), (tv, tu)}) < self._escape(tp_k, freach, set()):
+                        placed = (k, tu, tv, False, "planned")
+                    continue
+                holding = goals[k][0] == "hold" and goals[k][1] == u and "stand-in" in BARRICADE_RULES
+                leaving = "leave" in BARRICADE_RULES and self._held.get(k) == u and goals[k] != ("hold", u) and off <= 1.0
+                passing = "pass" in BARRICADE_RULES and not leaving
+                tp_free = tp_without(k) if holding or leaving or passing else None
+                if leaving or passing:
+                    n0, o0 = self._escape(tp_free, freach, set())
+                best = None
+                for v in {nb for nb, _ in self.pg.fwd[u]} | {nb for nb, _ in self.pg.rev[u]}:
+                    if v == u or not free_road(k, u, v):
+                        continue
+                    skip = {(u, v), (v, u)}
+                    n1, o1 = self._escape(tp_all, freach, skip)
+                    cand = None
+                    if o1 < base_open:
+                        cand = (3, base_open - o1, base_n - n1, v, False, "exit")
+                    elif leaving or passing:
+                        n2, o2 = self._escape(tp_free, freach, skip)
+                        if leaving and (o2, n2) < (o0, n0):
+                            cand = (2, o0 - o2, n0 - n2, v, False, "leave")
+                        elif passing and n0 and (o2 < o0 or (n0 - n2) / n0 >= PASS_MIN_CUT):
+                            cand = (2, o0 - o2, n0 - n2, v, False, "pass")
+                    elif holding:
+                        n2, o2 = self._escape(tp_free, freach, skip)
+                        if o2 <= base_open and n2 <= base_n:
+                            cand = (1, 0, base_n - n2, v, True, "stand-in")
+                    if cand and (best is None or cand[:3] > best[:3]):
+                        best = cand
+                if best is not None:
+                    placed = (k, u, best[3], best[4], best[5])
+            if placed is not None:
+                k, u, v, free, kind = placed
+                bar = barricade_on(self.network, u, v)
+                idx = len(self.barricades)
+                self.barricades.append(bar)
+                sids = [sid for sid, _ in bar.at]
+                self.closed.update(sids)
+                _close(self.pg, sids)
+                self._place_barricade(idx, bar)
+                self.kit[k] = False
+                self.tasks.pop(k, None)
+                if free:
+                    self.released.add(k)
+                self._target.clear()                             # every officer re-routes around it
+                self.deployments.append(dict(t=t, officer=k, node=u, to=v, freed=free, kind=kind))
+            # 2) plan: send a carrier ahead to seal an open exit
+            elif "planned" in BARRICADE_RULES and base_open and int(t) % PLAN_EVERY_S == 0:
+                nearest = min(range(len(reaches)), key=lambda k: arrive[k].get(freach[0], math.inf))
+                carriers = [k for k in range(len(reaches)) if self.kit[k] and k not in self.tasks and k != nearest] \
+                    if len(self.tasks) < max(1, len(reaches) // 2) else []
+                taken = set(self.tasks.values())
+                if carriers:
+                    best = None
+                    need = max(2, PLAN_MIN_GAIN * base_open)
+                    for road in self._choke_candidates(freach, open_exits):
+                        if road in taken or (road[1], road[0]) in taken:
+                            continue
+                        # the carrier closes it from whichever end it reaches first
+                        tk, k, w, x = min((arrive[k].get(w, math.inf), k, w, x) for k in carriers
+                                          for w, x in (road, road[::-1]))
+                        if tk > PLAN_MAX_TRIP_S or tk >= PLAN_SLACK * t_f(w) - CAPTURE_MARGIN_S:
+                            continue
+                        n1, o1 = self._escape(tp_all, freach, {(w, x), (x, w)})
+                        if base_open - o1 < need:
+                            continue
+                        cand = (base_open - o1, -tk, k, w, x)
+                        if best is None or cand[:2] > best[:2]:
+                            best = cand
+                    if best is not None:
+                        self.tasks[best[2]] = (best[3], best[4])
+            # drop tasks that can no longer be done first
+            for k, (u, v) in list(self.tasks.items()):
+                if arrive[k].get(u, math.inf) >= PLAN_SLACK * t_f(u) or (u, v) in busy and busy[(u, v)] == -1:
+                    del self.tasks[k]
+        for k, g in enumerate(goals):                            # remember who is holding where
+            u, off = self._reach(self.police_ids[k])
+            if g == ("hold", u) and off <= 1.0:
+                self._held[k] = u
+            elif g[0] != "hold" or g[1] != self._held.get(k):
+                if not (self._held.get(k) == u and off <= 1.0):
+                    self._held.pop(k, None)
+        out = []
+        for k, g in enumerate(goals):
+            if k in self.tasks:
+                out.append(("hold", self.tasks[k][0]))
+            elif k in self.released:
+                out.append(("pursue", None))
+            else:
+                out.append(g)
+        return out
+
+    def _choke_candidates(self, freach, open_exits) -> list:
+        """Bottleneck roads of the fugitive's escape: in its shortest-path tree (officers' map), the
+        roads with the most open exits below them (at least 2), best first."""
+        import heapq
+        f0, g = freach[0], self.pg
+        dist, parent, heap = {f0: 0.0}, {}, [(0.0, f0)]
+        while heap:
+            d, u = heapq.heappop(heap)
+            if d > dist.get(u, math.inf):
+                continue
+            for nb, w in g.fwd[u]:
+                if d + w < dist.get(nb, math.inf):
+                    dist[nb], parent[nb] = d + w, u
+                    heapq.heappush(heap, (d + w, nb))
+        below: dict = {}
+        for e in open_exits:
+            n = e
+            while n in parent:
+                road = (parent[n], n)
+                below[road] = below.get(road, 0) + 1
+                n = parent[n]
+        ranked = sorted((c, r) for r, c in below.items() if c >= 2)[::-1]
+        return [r for _, r in ranked[:PLAN_CANDIDATES]]
+
+    def _fugitive_time(self, node: int, freach) -> float:
+        f0, foff = freach
+        d = self.pg.dist_from(f0).get(node)
+        return math.inf if d is None else (foff + d) / self.case.vf
+
     def _spawn_barricades(self) -> None:
         c = self.conn
         c.vehicletype.copy("DEFAULT_VEHTYPE", "barricade")
@@ -407,20 +657,24 @@ class SumoPursuit:
         c.vehicletype.setMinGap("barricade", 0.5)
         c.vehicletype.setColor("barricade", (245, 150, 20, 255))
         for k, b in enumerate(self.barricades):
-            for sid, frac in b.at:
-                edge = f"e{sid}"
-                c.route.add(f"r_bar_{k}_{sid}", [edge])
-                for lane in range(c.edge.getLaneNumber(edge)):
-                    length = c.lane.getLength(f"{edge}_{lane}")
-                    pos = min(max(frac * length, 2.5), max(length - 0.5, 2.5))
-                    vid = f"barricade_{k}_{sid}_{lane}"
-                    try:
-                        c.vehicle.add(vid, f"r_bar_{k}_{sid}", typeID="barricade", depart="now", departPos=str(pos),
-                                      departSpeed="0", departLane=str(lane))
-                        c.vehicle.setStop(vid, edge, pos=pos, laneIndex=lane, duration=HOLD_S)
-                    except Exception:                           # noqa: BLE001 (lane closed to cars, too short)
-                        continue
-                    self.blocker_ids.append(vid)
+            self._place_barricade(k, b)
+
+    def _place_barricade(self, k: int, b: Barricade) -> None:
+        c = self.conn
+        for sid, frac in b.at:
+            edge = f"e{sid}"
+            c.route.add(f"r_bar_{k}_{sid}", [edge])
+            for lane in range(c.edge.getLaneNumber(edge)):
+                length = c.lane.getLength(f"{edge}_{lane}")
+                pos = min(max(frac * length, 2.5), max(length - 0.5, 2.5))
+                vid = f"barricade_{k}_{sid}_{lane}"
+                try:
+                    c.vehicle.add(vid, f"r_bar_{k}_{sid}", typeID="barricade", depart="now", departPos=str(pos),
+                                  departSpeed="0", departLane=str(lane))
+                    c.vehicle.setStop(vid, edge, pos=pos, laneIndex=lane, duration=HOLD_S)
+                except Exception:                           # noqa: BLE001 (lane closed to cars, too short)
+                    continue
+                self.blocker_ids.append(vid)
 
     # -- episode -------------------------------------------------------------------------------
     def _spawn(self) -> None:
@@ -485,7 +739,8 @@ class SumoPursuit:
     def _emit(self, t, pxy, fxy, goals) -> None:
         self._last_goals = goals
         frame = dict(t=round(t, 2), p=[list(map(float, q)) for q in pxy], f=list(map(float, fxy)), goals=goals,
-                     reach=[self._reach(v) for v in self.police_ids + [self.fid]], known=sorted(self.known))
+                     reach=[self._reach(v) for v in self.police_ids + [self.fid]], known=sorted(self.known),
+                     bars=[b.xy for b in self.barricades], kit=list(self.kit))
         if self.background:
             mine = set(self.police_ids) | {self.fid} | set(self.blocker_ids)
             frame["bg"] = [list(map(float, self.conn.vehicle.getPosition(v)))
@@ -527,6 +782,8 @@ class SumoPursuit:
                     fug_pl, fsid = self._placement(self.fid)
                     fnode = int(self.seg[fsid].end_id)
                     goals = self.policy.targets(tuple(police_pl), fug_pl, int(t), self.case.max_steps, tuple(headings))
+                    if any(self.kit) or self.released:
+                        goals = self._deploy(goals, t)
                     if self.trapped is not None:                # trapped behind a barricade: close in for the arrest
                         near = sorted(range(len(pxy)), key=lambda k: math.dist(pxy[k], fxy))[:2]
                         goals = [("pursue", None) if k in near else g for k, g in enumerate(goals)]

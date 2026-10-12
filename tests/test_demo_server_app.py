@@ -72,6 +72,8 @@ def test_sumo_runner_emits_open_exit_coordinates_and_background_traffic(monkeypa
                     "reach": [(1, 0.0), (2, 0.0)],
                     "bg": [(5.0, 0.0)],
                     "known": [0],
+                    "bars": [(0.0, 0.0)],
+                    "kit": [False],
                 }
             )
 
@@ -117,6 +119,8 @@ def test_sumo_runner_emits_open_exit_coordinates_and_background_traffic(monkeypa
     assert len(frame["tgt"]) == 1
     assert len(frame["bg"]) == 1
     assert frame["bk"] == [0]
+    assert frame["kit"] == [False]
+    assert len(frame["bars"]) == 1 and len(frame["bars"][0]) == 2
 
 
 def test_barricades_are_rejected_outside_sumo() -> None:
@@ -124,6 +128,11 @@ def test_barricades_are_rejected_outside_sumo() -> None:
     response = client.post("/api/run", json={
         "map": "daejeon_demo", "police": [[36.35, 127.38]], "fugitive": [36.352, 127.385],
         "barricades": [[36.351, 127.383]], "engine": "point",
+    })
+    assert response.status_code == 422
+    response = client.post("/api/run", json={
+        "map": "daejeon_demo", "police": [[36.35, 127.38]], "fugitive": [36.352, 127.385],
+        "carry_barricades": True, "engine": "point",
     })
     assert response.status_code == 422
 
