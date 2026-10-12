@@ -231,3 +231,27 @@
 - 결과 미리 노출 수정: 스트림이 끝나도 재생이 끝나기 전에는 "계산 완료 · 재생 중"을 표시하고, 재생이 끝나면 결과를 보여줍니다.
 - 실행 시작과 기록 선택 시 지도를 차량들이 있는 범위로 확대합니다.
 - headless 확인: 예시 배치 → SUMO 실행 → 재생에서 런타임 예외 0건. `npm run build`와 `tests/test_demo_server_app.py`(7개) 통과.
+
+### 공개 배포 상태 (2026-10-12 18:41, Claude)
+- **완성본 링크**: https://express-krypton-ciz5965.vercel.app (Vercel 프로젝트 `express-krypton-ciz5965`, jaehyunkims-projects). 같은 빌드가 `temporary-express-krypton-ciz5965.vercel.app`에도 걸려 있습니다.
+- SUMO 서버와 공개 터널은 `demo/run_public.sh`(setsid 상시 실행)가 관리합니다.
+  - uvicorn과 cloudflared quick tunnel을 띄우고, 둘 중 하나가 꺼지면 다시 살립니다.
+  - 터널 주소가 바뀌면 `vercel@59.26.0 deploy --prod --build-env VITE_API_BASE=<새 주소>`로 자동 재배포합니다. 재시작 테스트에서 14초 만에 재배포가 끝났습니다.
+  - 현재 주소: `demo/logs/tunnel_url`. 로그: `demo/logs/{supervisor,server,tunnel,deploy}.log`.
+  - 다시 띄우는 방법: `cd /workspace/cluster && REDEPLOY_ON_URL_CHANGE=1 setsid nohup demo/run_public.sh > demo/logs/supervisor.log 2>&1 < /dev/null &`
+  - 종료할 때는 PID로 kill 하세요. `pkill -f`는 자기 셸까지 죽입니다.
+- 사용자 요청에 따라 토큰 없이 링크만으로 동작합니다. 보호 장치는 동시 실행 6개 제한(`PURSUIT_MAX_RUNS`)과 CORS(Vercel 도메인만 허용)입니다. 토큰을 다시 켜려면 `REQUIRE_TOKEN=1`로 띄우세요.
+- 실제 배포 사이트를 headless 브라우저로 확인했습니다: 예시 배치 → SUMO 실행 → 검거, 런타임 오류 0건. 실제 도로 + 일반 교통(traffic=2)도 터널 경유 API로 18 frame, 일반 차량 150대, 검거까지 확인했습니다.
+- 한계:
+  - 이 GPU 서버나 스크립트가 꺼지면 SUMO 기능이 멈춥니다. 녹화 시연 버튼은 계속 동작합니다.
+  - quick tunnel은 고정 주소가 아닙니다. 고정 주소가 필요하면 Cloudflare 계정에 named tunnel을 만드세요.
+- GitHub: 워크트리 `/tmp/pursuit-dashboard-deploy`, 브랜치 `codex/dashboard-deploy-20261012`에 커밋 2개(cc28f01까지)가 있지만 **push는 하지 못했습니다**. 이 서버에 GitHub 인증 정보가 없습니다. Codex 환경이나 사용자가 `git -C /tmp/pursuit-dashboard-deploy push origin codex/dashboard-deploy-20261012`로 push하세요.
+
+### 7.x Barricades + GitHub-linked Vercel (Claude, 2026-10-13)
+- Vercel `express-krypton-ciz5965` is linked to GitHub `jjaehyun2/Police_Runner`: Root Directory `demo/web`, **production branch = `codex/dashboard-deploy-20261012`** (main is untouched), env `VITE_API_BASE` = current tunnel URL. A push to that branch rebuilds production.
+- `demo/run_public.sh`: on tunnel URL change → `vercel env add VITE_API_BASE ... --force` (production/preview) → POST deploy hook (`demo/logs/deploy_hook`, not in git). Run with `REDEPLOY_ON_URL_CHANGE=1`.
+- Barricades (`sumo_sim.Barricade`, `barricade_at`; API `barricades: [[lat,lon]]`, SUMO only; frames carry `bk` = indices the fugitive has seen):
+  - closes both directions of the nearest road; in SUMO each lane gets a stopped `barricade` vehicle (orange), so background traffic queues behind it;
+  - officers route on `sim.pg` (barricaded roads removed) from the start; escape region in the dashboard also uses `pg`;
+  - fugitive uses its own graph `sim.fg`, closes a road only when within `BARRICADE_SIGHT_M`=80 m, then re-plans; if the barricade is ahead on its current road it U-turns (`moveToXY` onto the reverse edge); one-way/failed U-turn → `sim.trapped`, the 2 nearest officers switch to pursue and approach along that road;
+  - **the team policies (GA / encircle / ...) do not know about barricades yet** — officers may hold an exit that a barricade already closes. Next step: give the policy the barricaded graph (graph caches are keyed per network id in `multi_sim.graph_of` and `obs_ext.graph_for`, so this needs a per-run graph instead of the shared cache) and, later, let the policy choose barricade placement.
