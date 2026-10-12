@@ -1,0 +1,30 @@
+schema_version: '1.0'
+map_id: daegu-train-v1
+city: Daegu
+role: train
+query: live bounded OSMnx/Overpass drive-network query over the recorded bbox
+query_geometry:
+  type: Polygon
+  coordinates:
+  - - - 128.58
+      - 35.86
+    - - 128.61
+      - 35.86
+    - - 128.61
+      - 35.89
+    - - 128.58
+      - 35.89
+    - - 128.58
+      - 35.86
+source: OpenStreetMap contributors via OSMnx
+service: Overpass API
+service_version: osmnx==2.1.1
+acquired_at_utc: '2026-10-11T16:47:58.922927+00:00'
+preprocessing_version: decision-chain-v1+colocated-virtual-chain-v1
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/50a5f76d2fd68474bffffde4f1e6aafa0f20b0d52685c29ee17863c0f58b6af7/raw_osm.json
+network_path: cache/research/maps/50a5f76d2fd68474bffffde4f1e6aafa0f20b0d52685c29ee17863c0f58b6af7/model_network.json
+raw_file_hash: 1c9b720a5285ee3a9ca53b0f097f1196b573e8d61bc911b600550f8330386efc
+network_file_hash: 2a93933f0f942641030cae736b5b82f6b0b109a3eaf4c708c11591387d9f6f88
+network_content_hash: 2a93933f0f942641030cae736b5b82f6b0b109a3eaf4c708c11591387d9f6f88
+polygon_content_hash: 50a5f76d2fd68474bffffde4f1e6aafa0f20b0d52685c29ee17863c0f58b6af7

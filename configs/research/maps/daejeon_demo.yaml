@@ -1,0 +1,30 @@
+schema_version: '1.0'
+map_id: daejeon-demo-v1
+city: Daejeon
+role: validation
+query: live bounded OSMnx/Overpass drive-network query over the recorded bbox
+query_geometry:
+  type: Polygon
+  coordinates:
+  - - - 127.37
+      - 36.336
+    - - 127.4
+      - 36.336
+    - - 127.4
+      - 36.366
+    - - 127.37
+      - 36.366
+    - - 127.37
+      - 36.336
+source: OpenStreetMap contributors via OSMnx
+service: Overpass API
+service_version: osmnx==2.1.1
+acquired_at_utc: '2026-10-12T06:04:38.857040+00:00'
+preprocessing_version: decision-chain-v1+colocated-virtual-chain-v1
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/4eebe4940ecdfae486c4d99a779955c5c34b5fa4e72e72ccb799b11e458627ae/raw_osm.json
+network_path: cache/research/maps/4eebe4940ecdfae486c4d99a779955c5c34b5fa4e72e72ccb799b11e458627ae/model_network.json
+raw_file_hash: 6922936bd4eb417b66f0bbee73dc1d34ef9660427dd3dc14476ac485f4ac6fe4
+network_file_hash: 2675d4692b95d038f64efcd66b2b00d99ff6aba74b73f4bafc31728d2ca494f7
+network_content_hash: 2675d4692b95d038f64efcd66b2b00d99ff6aba74b73f4bafc31728d2ca494f7
+polygon_content_hash: 4eebe4940ecdfae486c4d99a779955c5c34b5fa4e72e72ccb799b11e458627ae

@@ -1,0 +1,30 @@
+schema_version: '1.0'
+map_id: ulsan-train-v1
+city: Ulsan
+role: train
+query: live bounded OSMnx/Overpass drive-network query over the recorded bbox
+query_geometry:
+  type: Polygon
+  coordinates:
+  - - - 129.3
+      - 35.53
+    - - 129.33
+      - 35.53
+    - - 129.33
+      - 35.56
+    - - 129.3
+      - 35.56
+    - - 129.3
+      - 35.53
+source: OpenStreetMap contributors via OSMnx
+service: Overpass API
+service_version: osmnx==2.1.1
+acquired_at_utc: '2026-10-11T16:52:25.921256+00:00'
+preprocessing_version: decision-chain-v1+colocated-virtual-chain-v1
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/31c5e880070a4c6726b08c8df209b5964d38105847c860bc7bc4a38bd4573194/raw_osm.json
+network_path: cache/research/maps/31c5e880070a4c6726b08c8df209b5964d38105847c860bc7bc4a38bd4573194/model_network.json
+raw_file_hash: 9ef70945bdf334a643947acb38403459617e75147e27e2aff50019c9b59efd71
+network_file_hash: 606c6a4701e76eebfeef4f1261759b078c98dd110b3d8096431e1511acfe0455
+network_content_hash: 606c6a4701e76eebfeef4f1261759b078c98dd110b3d8096431e1511acfe0455
+polygon_content_hash: 31c5e880070a4c6726b08c8df209b5964d38105847c860bc7bc4a38bd4573194
