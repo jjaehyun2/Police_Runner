@@ -6,8 +6,8 @@ import "./style.css";
 // types
 type LatLon = [number, number];
 interface MapInfo { name: string; label: string; roads: LatLon[][]; exits: LatLon[]; bounds: [LatLon, LatLon] }
-interface Frame { t: number; p: LatLon[]; f: LatLon; role: number[]; tgt: (LatLon | null)[]; reg: string; open: number; ox: LatLon[]; bg?: LatLon[] }
-interface Setup { police: LatLon[]; fugitive: LatLon; policy: string; engine: string; profile: string; traffic: number | null }
+interface Frame { t: number; p: LatLon[]; f: LatLon; role: number[]; tgt: (LatLon | null)[]; reg: string; open: number; ox: LatLon[]; bg?: LatLon[]; bk?: number[] }
+interface Setup { police: LatLon[]; fugitive: LatLon; policy: string; engine: string; profile: string; traffic: number | null; barricades?: LatLon[] }
 interface Run { id: number; mapInfo: MapInfo; setup: Setup | null; frames: Frame[]; outcome: string | null; seconds: number | null; error: string | null; label: string; done: boolean; recorded?: boolean }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -70,16 +70,20 @@ const bgLayer = L.layerGroup().addTo(map);
 const trailLayer = L.layerGroup().addTo(map);
 const targetLayer = L.layerGroup().addTo(map);
 const exitLayer = L.layerGroup().addTo(map);
+const barLayer = L.layerGroup().addTo(map);
 const vehLayer = L.layerGroup().addTo(map);
 
 const vehIcon = (cls: string, text = "") => L.divIcon({ className: "", html: `<div class="veh ${cls}">${text}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+const barIcon = (seen = false) => L.divIcon({ className: "", html: `<div class="barr${seen ? " seen" : ""}"></div>`, iconSize: [24, 11], iconAnchor: [12, 6] });
 
 // ---------------------------------------------------------------------------------------------
 // state
 let info: MapInfo | null = null;
 let replayMap = false;
-let mode: "police" | "fugitive" = "police";
+type Mode = "police" | "fugitive" | "barricade";
+let mode: Mode = "police";
 let police: L.LatLng[] = [];
+let barricades: L.LatLng[] = [];
 let fugitive: L.LatLng | null = null;
 const opts = { policy: "ga", engine: "sumo", profile: "ideal", traffic: "" as string, ignoreRed: false };
 const runs: Run[] = [];
@@ -110,13 +114,30 @@ function syncOpts() {
 }
 syncOpts();
 
-function setMode(m: "police" | "fugitive") {
+function setMode(m: Mode) {
   mode = m;
   $("modePolice").setAttribute("aria-pressed", String(m === "police"));
   $("modeFugitive").setAttribute("aria-pressed", String(m === "fugitive"));
+  $("modeBarricade").setAttribute("aria-pressed", String(m === "barricade"));
 }
 $("modePolice").addEventListener("click", () => setMode("police"));
 $("modeFugitive").addEventListener("click", () => setMode("fugitive"));
+$("modeBarricade").addEventListener("click", () => setMode("barricade"));
+
+// nearest point on the simulator's roads (the server snaps again; this just shows where it lands)
+function snapToRoad(ll: L.LatLng): L.LatLng {
+  if (!info) return ll;
+  const p = map.latLngToLayerPoint(ll);
+  let best: L.Point | null = null, bd = Infinity;
+  for (const r of info.roads) {
+    for (let i = 1; i < r.length; i++) {
+      const a = map.latLngToLayerPoint(r[i - 1]), b = map.latLngToLayerPoint(r[i]);
+      const q = L.LineUtil.closestPointOnSegment(p, a, b), d = q.distanceTo(p);
+      if (d < bd) { bd = d; best = q; }
+    }
+  }
+  return best ? map.layerPointToLatLng(best) : ll;
+}
 
 // ---------------------------------------------------------------------------------------------
 // placement
@@ -133,18 +154,25 @@ function drawPlacement() {
     m.on("dragend", () => { fugitive = m.getLatLng(); });
     m.addTo(placeLayer);
   }
-  $("counts").textContent = `경찰차 ${police.length}대 · 도주차 ${fugitive ? 1 : 0}대`;
+  barricades.forEach((ll, i) => {
+    const m = L.marker(ll, { icon: barIcon(), draggable: true, keyboard: true, title: `바리케이드 ${i + 1}` });
+    m.on("dragend", () => { barricades[i] = snapToRoad(m.getLatLng()); drawPlacement(); });
+    m.on("click", () => { barricades.splice(i, 1); drawPlacement(); });
+    m.addTo(placeLayer);
+  });
+  $("counts").textContent = `경찰차 ${police.length}대 · 도주차 ${fugitive ? 1 : 0}대 · 바리케이드 ${barricades.length}개`;
 }
 map.on("click", (e: L.LeafletMouseEvent) => {
   if (replayMap || current && !current.done) return;
   showPlacement();
   if (mode === "police") { if (police.length < 12) police.push(e.latlng); }
+  else if (mode === "barricade") { if (barricades.length < 20) barricades.push(snapToRoad(e.latlng)); }
   else fugitive = e.latlng;
   drawPlacement();
 });
 $("clear").addEventListener("click", () => {
   if (replayMap) return;
-  police = []; fugitive = null; showPlacement(); drawPlacement();
+  police = []; fugitive = null; barricades = []; showPlacement(); drawPlacement();
 });
 $("example").addEventListener("click", async () => {
   if (!info) return;
@@ -167,7 +195,8 @@ function showPlacement() {
   follow = false;
   cancelAnimationFrame(rafId);
   $("play").textContent = "▶";
-  regionLayer.clearLayers(); bgLayer.clearLayers(); trailLayer.clearLayers(); targetLayer.clearLayers(); vehLayer.clearLayers(); exitLayer.clearLayers();
+  regionLayer.clearLayers(); bgLayer.clearLayers(); trailLayer.clearLayers(); targetLayer.clearLayers(); vehLayer.clearLayers(); exitLayer.clearLayers(); barLayer.clearLayers();
+  $("barLegend").hidden = true;
   map.addLayer(placeLayer);
 }
 
@@ -193,7 +222,7 @@ async function loadMap(name: string) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   replayMap = false;
   showMap(await r.json() as MapInfo);
-  police = []; fugitive = null; showPlacement(); drawPlacement();
+  police = []; fugitive = null; barricades = []; showPlacement(); drawPlacement();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -210,6 +239,7 @@ $("fallback").addEventListener("click", async () => {
     showMap(saved.map);
     police = saved.setup.police.map((p) => L.latLng(p[0], p[1]));
     fugitive = L.latLng(saved.setup.fugitive[0], saved.setup.fugitive[1]);
+    barricades = (saved.setup.barricades ?? []).map((p) => L.latLng(p[0], p[1]));
     drawPlacement();
     const replay: Run = { id: ++runSeq, mapInfo: saved.map, setup: saved.setup, frames: saved.frames,
       outcome: saved.outcome, seconds: saved.seconds, error: null, done: true, recorded: true,
@@ -229,8 +259,10 @@ async function startRun() {
   if (!info) return;
   if (replayMap) { setStatus("error", "녹화 시연은 현재 배치로 다시 계산할 수 없습니다. 서버에 연결한 뒤 지도를 다시 불러오세요."); return; }
   if (!police.length || !fugitive) { setStatus("error", "경찰차를 1대 이상, 도주차를 1대 놓아 주세요"); return; }
+  if (barricades.length && opts.engine !== "sumo") { setStatus("error", "바리케이드는 SUMO 시뮬레이터에서만 쓸 수 있습니다. 시뮬레이터를 SUMO로 바꾸거나 바리케이드를 지워 주세요."); return; }
   const body = {
     map: info.name, police: police.map((p) => [p.lat, p.lng]), fugitive: [fugitive.lat, fugitive.lng],
+    barricades: barricades.map((p) => [p.lat, p.lng]),
     policy: opts.policy, engine: opts.engine, profile: opts.profile,
     traffic: opts.engine === "sumo" && opts.profile === "real" && opts.traffic ? Number(opts.traffic) : null,
     ignore_red: opts.engine === "sumo" && opts.profile === "real" && opts.ignoreRed,
@@ -238,14 +270,18 @@ async function startRun() {
   const policyLabel = document.querySelector<HTMLButtonElement>(`#policySeg button[data-v="${opts.policy}"]`)?.textContent ?? opts.policy;
   const cond = opts.engine === "sumo" ? (opts.profile === "real" ? `실제 도로${body.traffic ? (body.traffic < 1 ? "·혼잡" : "·보통") : ""}${body.ignore_red ? "·긴급" : ""}` : "신호 없음") : "";
   const run: Run = { id: ++runSeq, mapInfo: info, setup: null, frames: [], outcome: null, seconds: null, error: null, done: false,
-    label: `${policyLabel} · ${ENGINE[opts.engine]}${cond ? ` (${cond})` : ""} · 경찰 ${police.length}대` };
+    label: `${policyLabel} · ${ENGINE[opts.engine]}${cond ? ` (${cond})` : ""} · 경찰 ${police.length}대${barricades.length ? ` · 바리케이드 ${barricades.length}` : ""}` };
   runs.unshift(run); select(run); renderHistory();
   $<HTMLButtonElement>("run").disabled = true;
   setStatus("running", opts.engine === "sumo" && body.traffic ? "SUMO 준비 중 · 일반 교통을 먼저 채웁니다" : "계산 중…");
   map.removeLayer(placeLayer);
   try {
     const res = await fetch(api("/api/run"), { method: "POST", headers: apiHeaders({ "content-type": "application/json" }), body: JSON.stringify(body) });
-    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok || !res.body) {
+      let detail = "";
+      try { const j = await res.json() as { detail?: unknown }; if (typeof j.detail === "string") detail = ` ${j.detail}`; } catch { /* not JSON */ }
+      throw new Error(`HTTP ${res.status}${detail}`);
+    }
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
@@ -377,6 +413,10 @@ function redrawFrame(force: boolean) {
       L.polyline([a.p[k], t], { renderer: canvas, color: tc, weight: 1.5, dashArray: "3 6", interactive: false }).addTo(targetLayer);
       L.rectangle(L.latLng(t).toBounds(16), { renderer: canvas, color: tc, weight: 2, fill: false, interactive: false }).addTo(targetLayer);
     });
+    barLayer.clearLayers();
+    const bars = current.setup?.barricades ?? [];
+    $("barLegend").hidden = !bars.length;
+    bars.forEach((q, k) => L.marker(q, { icon: barIcon(a.bk?.includes(k) ?? false), interactive: false, keyboard: false }).addTo(barLayer));
     bgLayer.clearLayers();
     $("bgLegend").hidden = !a.bg;
     if (a.bg) { const c = css("--bg-car"); a.bg.forEach((q) => L.circleMarker(q, { renderer: canvas, radius: 2.5, color: c, weight: 0, fillOpacity: 0.8, interactive: false }).addTo(bgLayer)); }

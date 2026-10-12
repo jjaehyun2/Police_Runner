@@ -71,6 +71,7 @@ def test_sumo_runner_emits_open_exit_coordinates_and_background_traffic(monkeypa
                     "goals": [("hold", 2)],
                     "reach": [(1, 0.0), (2, 0.0)],
                     "bg": [(5.0, 0.0)],
+                    "known": [0],
                 }
             )
 
@@ -82,7 +83,7 @@ def test_sumo_runner_emits_open_exit_coordinates_and_background_traffic(monkeypa
     fake_map = SimpleNamespace(
         name="fake_map",
         pos={1: (0.0, 0.0), 2: (10.0, 0.0)},
-        region_bits=lambda reach: ("AA==", [[36.0, 127.0], [36.1, 127.1]]),
+        region_bits=lambda reach, g=None: ("AA==", [[36.0, 127.0], [36.1, 127.1]]),
     )
     req = demo_app.RunRequest(
         map="daejeon_demo",
@@ -115,6 +116,30 @@ def test_sumo_runner_emits_open_exit_coordinates_and_background_traffic(monkeypa
     assert len(frame["f"]) == 2
     assert len(frame["tgt"]) == 1
     assert len(frame["bg"]) == 1
+    assert frame["bk"] == [0]
+
+
+def test_barricades_are_rejected_outside_sumo() -> None:
+    client = TestClient(demo_app.app)
+    response = client.post("/api/run", json={
+        "map": "daejeon_demo", "police": [[36.35, 127.38]], "fugitive": [36.352, 127.385],
+        "barricades": [[36.351, 127.383]], "engine": "point",
+    })
+    assert response.status_code == 422
+
+
+def test_barricade_closes_both_directions_of_the_nearest_road() -> None:
+    import common
+    from sumo_sim import barricade_at
+
+    net = common.load_network("daejeon_demo")
+    seg = next(s for s in net.segments if s.length_m > 150 and not s.crosses_boundary
+               and any((o.start_id, o.end_id) == (s.end_id, s.start_id) for o in net.segments))
+    a, b = seg.geometry_xy[0], seg.geometry_xy[-1]
+    bar = barricade_at(net, ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2))
+    pairs = {(s.start_id, s.end_id) for s in net.segments if s.id in {sid for sid, _ in bar.at}}
+    assert pairs == {(seg.start_id, seg.end_id), (seg.end_id, seg.start_id)}
+    assert all(0.0 < frac < 1.0 for _, frac in bar.at)
 
 
 def test_api_token_is_optional_when_unset(monkeypatch) -> None:

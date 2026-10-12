@@ -27,11 +27,13 @@
 
       <section class="group">
         <div class="label">배치</div>
-        <div class="seg" role="group" aria-label="지도 클릭 시 놓을 차량">
-          <button type="button" id="modePolice" aria-pressed="true"><span class="dot police"></span>경찰차 놓기</button>
-          <button type="button" id="modeFugitive" aria-pressed="false"><span class="dot fugitive"></span>도주차 놓기</button>
+        <div class="seg three" role="group" aria-label="지도 클릭 시 놓을 것">
+          <button type="button" id="modePolice" aria-pressed="true"><span class="dot police"></span>경찰차</button>
+          <button type="button" id="modeFugitive" aria-pressed="false"><span class="dot fugitive"></span>도주차</button>
+          <button type="button" id="modeBarricade" aria-pressed="false"><span class="barr-key"></span>바리케이드</button>
         </div>
-        <p class="hint">지도를 클릭해 놓고, 끌어서 옮기고, 경찰차를 다시 클릭하면 지웁니다. 위치는 가장 가까운 교차로로 맞춰집니다.</p>
+        <p class="hint">지도를 클릭해 놓고, 끌어서 옮기고, 경찰차·바리케이드를 다시 클릭하면 지웁니다. 차량은 가장 가까운 교차로에, 바리케이드는 가장 가까운 도로에 놓입니다(양방향 통제).</p>
+        <p class="hint">경찰은 바리케이드 위치를 처음부터 알고 피해 다닙니다. 도주차는 80 m 안에 들어와야 알아채고, 그때 경로를 바꾸거나 되돌아갑니다. SUMO에서만 쓸 수 있습니다.</p>
         <div class="row">
           <button type="button" class="btn" id="example">예시 배치</button>
           <label class="inline" for="exampleN">경찰</label>
@@ -94,6 +96,7 @@
         <span><i class="bar region"></i>도주 가능 도로</span>
         <span><i class="sq"></i>차단 지점</span>
         <span><i class="dot exit"></i>열린 출구</span>
+        <span id="barLegend" hidden><i class="barr-key"></i>바리케이드 <i class="barr-key seen"></i>도주차가 발견</span>
         <span id="bgLegend" hidden><i class="dot bg"></i>일반 차량</span>
       </div>
     </main>

@@ -6,6 +6,7 @@
   GET  /api/map/{name}                -> roads (lat/lon), exits, bounds, road count
   POST /api/example                   -> an example start {police:[[lat,lon]], fugitive:[lat,lon]}
   POST /api/run                       -> NDJSON stream: setup, frame (one per simulated second), end
+                                         (optional barricades [[lat,lon]]: closed roads, SUMO only)
 
 Run:  uvicorn app:app --host 0.0.0.0 --port 8600   (from demo/server, with the project venv)
 Env:  PURSUIT_MAX_RUNS (concurrent simulations, default 6), PURSUIT_CORS (comma list, default *),
@@ -94,9 +95,10 @@ class MapData:
         pts = np.array([self.pos[int(n)] for n in pool])
         return int(pool[int(np.argmin(((pts - (x, y)) ** 2).sum(1)))])
 
-    def region_bits(self, reach) -> tuple[str, list]:
-        """Escape region as a road bitset (base64) and the open exits' coordinates."""
-        region, open_exits = multi_sim.escape_region(self.g, reach, SPEED, SPEED, self.exits)
+    def region_bits(self, reach, g=None) -> tuple[str, list]:
+        """Escape region as a road bitset (base64) and the open exits' coordinates (``g``: the road
+        graph with barricaded roads removed, when there are any)."""
+        region, open_exits = multi_sim.escape_region(g or self.g, reach, SPEED, SPEED, self.exits)
         bits = bytearray((len(self.roads) + 7) // 8)
         for (a, b), i in self.index.items():
             if a in region and b in region:
@@ -126,26 +128,29 @@ def _goal_payload(m: MapData, goals) -> tuple[list[int], list]:
     return role, tgt
 
 
-def run_sumo(m: MapData, case, spec: str, req: "RunRequest", emit) -> dict:
+def run_sumo(m: MapData, case, spec: str, req: "RunRequest", emit, barricades=()) -> dict:
     from sumo_sim import SumoPursuit
+    holder: dict = {}
 
     def on_frame(fr):
         role, tgt = _goal_payload(m, fr["goals"])
-        reg, ox = m.region_bits([tuple(r) for r in fr["reach"]])
+        reg, ox = m.region_bits([tuple(r) for r in fr["reach"]], getattr(holder.get("sim"), "pg", None))
         out = dict(type="frame", t=fr["t"], p=[ll(q) for q in fr["p"]], f=ll(fr["f"]), role=role, tgt=tgt,
-                   reg=reg, open=len(ox), ox=ox)
+                   reg=reg, open=len(ox), ox=ox, bk=fr.get("known", []))
         if "bg" in fr:
             out["bg"] = [ll(q) for q in fr["bg"][:600]]
         emit(out)
 
     with _START_LOCK:
         sim = SumoPursuit(m.name, case, spec, profile=req.profile, traffic=req.traffic,
-                          ignore_red=req.ignore_red, on_frame=on_frame, background=req.traffic is not None)
+                          ignore_red=req.ignore_red, on_frame=on_frame, background=req.traffic is not None,
+                          barricades=barricades)
+    holder["sim"] = sim
     r = sim.run()
     return dict(outcome=r.outcome, seconds=round(r.seconds, 2))
 
 
-def run_point(m: MapData, case, spec: str, req: "RunRequest", emit) -> dict:
+def run_point(m: MapData, case, spec: str, req: "RunRequest", emit, barricades=()) -> dict:
     from sumo_sim import TargetPolicy
     tp = TargetPolicy(spec, m.net, len(case.police))
     bridge = multi_sim.RecommendBridge(tp.team)
@@ -206,6 +211,7 @@ class RunRequest(BaseModel):
     map: str = "daejeon_demo"
     police: list[tuple[float, float]] = Field(..., min_length=1, max_length=12)
     fugitive: tuple[float, float]
+    barricades: list[tuple[float, float]] = Field(default_factory=list, max_length=20)
     policy: Literal["ga", "encircle", "greedy", "assign"] = "ga"
     engine: Literal["sumo", "point"] = "sumo"
     profile: Literal["ideal", "real"] = "ideal"
@@ -252,6 +258,15 @@ async def run(req: RunRequest):
     fug = m.snap(req.fugitive, np.array([n for n in m.fugitive_nodes if n not in police]))
     seed = abs(hash((tuple(police), fug))) % 2**31
     case = multi_sim.MultiCase(tuple(police), (fug,), (seed,), SPEED, SPEED, max_steps=req.max_seconds)
+    if req.barricades and req.engine != "sumo":
+        raise HTTPException(422, "바리케이드는 SUMO 시뮬레이터에서만 쓸 수 있습니다.")
+    from sumo_sim import barricade_at
+    barricades = []
+    for b in req.barricades:
+        x, y = TO_XY.transform(b[1], b[0])
+        bar = barricade_at(m.net, (x, y))
+        if all(bar.at != o.at for o in barricades):           # one barricade per road
+            barricades.append(bar)
     spec, label = POLICIES[req.policy]
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
@@ -266,9 +281,10 @@ async def run(req: RunRequest):
             return
         try:
             emit(dict(type="setup", police=[ll(m.pos[n]) for n in police], fugitive=ll(m.pos[fug]),
-                      policy=label, engine=req.engine, profile=req.profile, traffic=req.traffic))
+                      policy=label, engine=req.engine, profile=req.profile, traffic=req.traffic,
+                      barricades=[ll(b.xy) for b in barricades]))
             runner = run_sumo if req.engine == "sumo" else run_point
-            end = runner(m, case, spec, req, emit)
+            end = runner(m, case, spec, req, emit, tuple(barricades))
             emit(dict(type="end", **end))
         except Exception as e:                              # noqa: BLE001
             emit(dict(type="error", message=f"{type(e).__name__}: {e}"[:300]))

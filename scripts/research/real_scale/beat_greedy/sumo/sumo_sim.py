@@ -12,6 +12,11 @@ Control split (the PEPCRL-MVP two-level structure, with SUMO as the lower level)
   fugitive      the same GoalEvader, asked for its next edge shortly before it reaches each
                 intersection, with the officers' current SUMO positions.
 
+Barricades (optional): a closed road, both directions, at a point along it. In SUMO each lane gets a
+stopped obstacle there, so traffic queues behind it. The police placed them, so officers route
+around them from the start; the fugitive only learns of one once it is within BARRICADE_SIGHT_M,
+then drops that road from its own map, re-plans, and turns back if it is already driving towards it.
+
 Outcomes as in multi_sim: success when an officer is within capture_radius_m of the fugitive
 (checked every SUMO step), escape when the fugitive completes a boundary-crossing edge,
 timeout at case.max_steps seconds.
@@ -37,9 +42,10 @@ from multi_sim import MultiCase, graph_of  # noqa: E402
 from pursuit_evasion_rl.osm_demo.coarsening import ordered_outgoing_segment_ids  # noqa: E402
 from pursuit_evasion_rl.osm_demo.environment import _heading_at_end  # noqa: E402
 from pursuit_evasion_rl.osm_demo.models import VehiclePlacement  # noqa: E402
-from pursuit_evasion_rl.research.policies.baselines import STAY_ACTION, GoalEvader  # noqa: E402
+from pursuit_evasion_rl.research.policies.baselines import STAY_ACTION, GoalEvader, _Graph  # noqa: E402
 
 VISION_M = 150.0
+BARRICADE_SIGHT_M = 80.0
 HOLD_S = 1e6
 PROFILES = {
     # vehicle dynamics per network profile: (accel, decel, emergencyDecel) m/s^2
@@ -58,6 +64,51 @@ class SumoResult:
 
 def _edge_sid(edge_id: str) -> int | None:
     return int(edge_id[1:]) if edge_id.startswith("e") else None
+
+
+@dataclass(frozen=True)
+class Barricade:
+    xy: tuple[float, float]
+    at: tuple[tuple[int, float], ...]                           # (directed segment id, fraction along it)
+
+
+def _polyline_length(pts) -> float:
+    return sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+
+
+def barricade_at(network, xy) -> Barricade:
+    """Close the road nearest to ``xy`` (every directed segment between its two intersections)."""
+    best = None
+    for s in network.segments:
+        pts, run = s.geometry_xy, 0.0
+        for a, b in zip(pts, pts[1:]):
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            ln2 = dx * dx + dy * dy
+            u = 0.0 if ln2 == 0 else min(1.0, max(0.0, ((xy[0] - a[0]) * dx + (xy[1] - a[1]) * dy) / ln2))
+            q = (a[0] + u * dx, a[1] + u * dy)
+            d = math.dist(q, xy)
+            if best is None or d < best[0]:
+                best = (d, s, run + u * math.sqrt(ln2), q)
+            run += math.sqrt(ln2)
+    _, s0, along, q = best
+    frac = min(0.95, max(0.05, along / max(_polyline_length(s0.geometry_xy), 1e-6)))
+    at = []
+    for s in network.segments:
+        if (s.start_id, s.end_id) == (s0.start_id, s0.end_id):
+            at.append((int(s.id), frac))
+        elif (s.start_id, s.end_id) == (s0.end_id, s0.start_id):
+            at.append((int(s.id), 1.0 - frac))
+    return Barricade((float(q[0]), float(q[1])), tuple(at))
+
+
+def _close(g: _Graph, sids) -> None:
+    """Remove directed segments from a private graph copy (and drop its distance caches)."""
+    for sid in sids:
+        s = g.seg[sid]
+        g.fwd[s.start_id].remove((s.end_id, float(s.length_m)))
+        g.rev[s.end_id].remove((s.start_id, float(s.length_m)))
+    g._to.clear()
+    g._from.clear()
 
 
 class TargetPolicy:
@@ -98,12 +149,14 @@ class SumoPursuit:
     def __init__(self, map_name: str, case: MultiCase, spec: str, *, profile: str = "ideal",
                  step_length: float = 0.25, record: bool = False, gui: bool = False,
                  traffic: float | None = None, warmup_s: float = 300.0, ignore_red: bool = False,
-                 speed_factor: float | None = None, on_frame=None, background: bool = False) -> None:
+                 speed_factor: float | None = None, on_frame=None, background: bool = False,
+                 barricades: tuple[Barricade, ...] = ()) -> None:
         """traffic      background demand period (s per random trip; None = empty roads)
         warmup_s     background traffic runs this long before the pursuit starts
         ignore_red   officers and fugitive run red lights / ignore right of way (emergency driving)
         speed_factor multiple of each road's speed limit the pursuit vehicles drive at, capped at
-                     vp / vf (default: unlimited in "ideal", 2.0 in "real")"""
+                     vp / vf (default: unlimited in "ideal", 2.0 in "real")
+        barricades   closed roads (see barricade_at)"""
         import sumo
         import traci
         self.map_name, self.case, self.profile, self.dt = map_name, case, profile, step_length
@@ -115,7 +168,20 @@ class SumoPursuit:
         for s in self.network.segments:
             self._out.setdefault(s.start_id, []).append(s.id)
         self.policy = TargetPolicy(spec, self.network, len(case.police))
-        self.evader = GoalEvader(self.network, rng=np.random.default_rng(case.seeds[0]), graph=self.g,
+        self.barricades = tuple(barricades)
+        self.closed = {sid for b in self.barricades for sid, _ in b.at}
+        if self.barricades:
+            self.pg = _Graph(self.network)                       # officers' (true) road map
+            _close(self.pg, self.closed)
+            self.fg = _Graph(self.network)                       # the fugitive's map: closes roads as it sees them
+        else:
+            self.pg = self.fg = self.g
+        self.known: set[int] = set()                             # barricades the fugitive has seen
+        self.known_sids: set[int] = set()
+        self._uturn: str | None = None
+        self._uturn_failed: dict[int, int] = {}
+        self.trapped: int | None = None                          # segment the fugitive is stuck on
+        self.evader = GoalEvader(self.network, rng=np.random.default_rng(case.seeds[0]), graph=self.fg,
                                  vision_range_m=VISION_M)
         self.record = record
         self.trajectory: list = []
@@ -149,6 +215,7 @@ class SumoPursuit:
         self.conn = traci.getConnection(self.label)
         self.police_ids = [f"police_{k}" for k in range(len(case.police))]
         self.fid = "fugitive"
+        self.blocker_ids: list[str] = []
         self._target: dict[str, tuple] = {}
         self._decided: dict[str, int] = {}                     # fugitive: edge -> next edge decided
         self._last_edge: str | None = None
@@ -158,8 +225,8 @@ class SumoPursuit:
 
     # -- geometry / state ----------------------------------------------------------------------
     def _path_edges(self, src_node: int, dst_node: int) -> list[str]:
-        """Shortest directed path as edge ids (via the shared graph)."""
-        to = self.g.dist_to(dst_node)
+        """Shortest directed path as edge ids for an officer (around every barricade)."""
+        to = self.pg.dist_to(dst_node)
         if src_node not in to:
             return []
         out, cur, guard = [], src_node, 0
@@ -167,6 +234,8 @@ class SumoPursuit:
             guard += 1
             best = None
             for sid in self.network_out(cur):
+                if sid in self.closed:
+                    continue
                 s = self.seg[sid]
                 d = to.get(s.end_id)
                 if d is not None and (best is None or s.length_m + d < best[0]):
@@ -236,11 +305,16 @@ class SumoPursuit:
         if cur is None:
             return                                              # crossing a junction; next second
         node = fnode if goal[0] == "pursue" else goal[1]
-        key = (goal[0], node, cur)
+        trapped = self.trapped if goal[0] == "pursue" else None
+        key = (goal[0], node, cur, trapped)
         if self._target.get(vid) == key:
             return
         start = int(self.seg[_edge_sid(cur)].end_id)
-        edges = [cur] + self._path_edges(start, node)
+        if trapped is not None:                                 # come up behind it on its own road
+            edges = [cur] if _edge_sid(cur) == trapped else \
+                [cur] + self._path_edges(start, int(self.seg[trapped].start_id)) + [f"e{trapped}"]
+        else:
+            edges = [cur] + self._path_edges(start, node)
         lane_pos = self.conn.vehicle.getLanePosition(vid)
         if len(edges) == 1 and lane_pos > self.conn.lane.getLength(f"{cur}_0") - 0.6:
             self._target[vid] = key                             # already holding at the node
@@ -254,7 +328,8 @@ class SumoPursuit:
     def _fugitive_next(self, cur: str, pxy) -> str | None:
         sid = _edge_sid(cur)
         node = int(self.seg[sid].end_id)
-        ordered = ordered_outgoing_segment_ids(self.network, node, self.heading_end[sid])
+        ordered = [o for o in ordered_outgoing_segment_ids(self.network, node, self.heading_end[sid])
+                   if o not in self.known_sids]
         provider = self.evader.env_provider(self.network, pxy)
         slot = int(provider(self.fid, node, ordered, 0))
         if slot == STAY_ACTION or slot >= len(ordered):
@@ -274,6 +349,79 @@ class SumoPursuit:
         self._decided = {cur: nxt}
         self._set_route(self.fid, [cur] + ([nxt] if nxt else []))
 
+    def _see_barricades(self, fxy) -> None:
+        """The fugitive notices barricades within sight: it closes those roads on its own map,
+        drops its goal and pending turn, and turns back if one lies ahead on its current road."""
+        new = [k for k, b in enumerate(self.barricades) if k not in self.known and math.dist(b.xy, fxy) <= BARRICADE_SIGHT_M]
+        if not new:
+            return
+        for k in new:
+            self.known.add(k)
+            sids = [sid for sid, _ in self.barricades[k].at]
+            self.known_sids.update(sids)
+            _close(self.fg, sids)
+        self.evader.goal = None
+        self._decided = {}
+
+    def _blocked_ahead(self) -> int | None:
+        """The fugitive's current segment when a barricade it knows of lies ahead on it."""
+        cur = self._current_edge(self.fid)
+        if cur is None or _edge_sid(cur) not in self.known_sids:
+            return None
+        sid = _edge_sid(cur)
+        lane_len = self.conn.lane.getLength(self.conn.vehicle.getLaneID(self.fid))
+        pos = self.conn.vehicle.getLanePosition(self.fid)
+        ahead = any(s == sid and frac * lane_len > pos for k in self.known for s, frac in self.barricades[k].at)
+        return sid if ahead else None
+
+    def _turn_back(self) -> None:
+        """Turn the fugitive around when it faces a barricade it knows of (if the road is two-way);
+        otherwise it is trapped and waits behind it."""
+        sid = self._blocked_ahead()
+        self.trapped = None
+        if sid is None:
+            return
+        seg = self.seg[sid]
+        rev = [o for o in self.network_out(seg.end_id) if self.seg[o].end_id == seg.start_id]
+        if not rev or self._uturn_failed.get(sid, 0) >= 3:
+            self.trapped = sid                                  # one-way road: stuck behind the barricade
+            return
+        c = self.conn.vehicle
+        if c.isStopped(self.fid):
+            c.resume(self.fid)
+        for _ in range(len(c.getStops(self.fid, 8))):
+            c.replaceStop(self.fid, 0, "")
+        x, y = c.getPosition(self.fid)
+        try:
+            c.moveToXY(self.fid, f"e{rev[0]}", 0, x, y, angle=(c.getAngle(self.fid) + 180.0) % 360.0, keepRoute=0)
+        except Exception:                                       # noqa: BLE001 (retried; then it is trapped)
+            self._uturn_failed[sid] = self._uturn_failed.get(sid, 0) + 1
+            return
+        self._uturn, self._uturn_steps, self._uturn_from = f"e{rev[0]}", 0, sid
+        self.evader.prev_node = seg.end_id
+
+    def _spawn_barricades(self) -> None:
+        c = self.conn
+        c.vehicletype.copy("DEFAULT_VEHTYPE", "barricade")
+        c.vehicletype.setLength("barricade", 2.0)
+        c.vehicletype.setMinGap("barricade", 0.5)
+        c.vehicletype.setColor("barricade", (245, 150, 20, 255))
+        for k, b in enumerate(self.barricades):
+            for sid, frac in b.at:
+                edge = f"e{sid}"
+                c.route.add(f"r_bar_{k}_{sid}", [edge])
+                for lane in range(c.edge.getLaneNumber(edge)):
+                    length = c.lane.getLength(f"{edge}_{lane}")
+                    pos = min(max(frac * length, 2.5), max(length - 0.5, 2.5))
+                    vid = f"barricade_{k}_{sid}_{lane}"
+                    try:
+                        c.vehicle.add(vid, f"r_bar_{k}_{sid}", typeID="barricade", depart="now", departPos=str(pos),
+                                      departSpeed="0", departLane=str(lane))
+                        c.vehicle.setStop(vid, edge, pos=pos, laneIndex=lane, duration=HOLD_S)
+                    except Exception:                           # noqa: BLE001 (lane closed to cars, too short)
+                        continue
+                    self.blocker_ids.append(vid)
+
     # -- episode -------------------------------------------------------------------------------
     def _spawn(self) -> None:
         c = self.conn
@@ -281,6 +429,7 @@ class SumoPursuit:
         while warm * self.dt < self.warmup_s:                    # let background traffic fill the roads
             c.simulationStep(); warm += 1
         self.t0 = c.simulation.getTime()
+        self._spawn_barricades()
         police_pl = tuple(VehiclePlacement(intersection_id=n) for n in self.case.police)
         fug_pl = VehiclePlacement(intersection_id=self.case.fugitives[0])
         goals = self.policy.targets(police_pl, fug_pl, 0, self.case.max_steps, (None,) * len(police_pl))
@@ -298,13 +447,14 @@ class SumoPursuit:
         fnode = self.case.fugitives[0]
         for k, (vid, n) in enumerate(zip(self.police_ids, self.case.police)):
             node = fnode if goals[k][0] == "pursue" else goals[k][1]
-            edges = self._path_edges(n, node) or [f"e{self.network_out(n)[0]}"]
+            first_out = [o for o in self.network_out(n) if o not in self.closed] or self.network_out(n)
+            edges = self._path_edges(n, node) or [f"e{first_out[0]}"]
             c.route.add(f"r_{vid}", edges)
             c.vehicle.add(vid, f"r_{vid}", typeID="police", depart="now", departPos="0", departSpeed="0",
                           departLane="best")
             if self.ignore_red:
                 c.vehicle.setSpeedMode(vid, 7)                   # no red-light / right-of-way braking
-            if edges == [f"e{self.network_out(n)[0]}"] and node == n:
+            if edges == [f"e{first_out[0]}"] and node == n:
                 c.vehicle.setStop(vid, edges[0], pos=1.0, laneIndex=0, duration=HOLD_S)
             else:
                 c.vehicle.setStop(vid, edges[-1], pos=max(c.lane.getLength(f"{edges[-1]}_0") - 0.5, 0.1),
@@ -312,7 +462,15 @@ class SumoPursuit:
             self._target[vid] = None
         # fugitive: first edge from its start intersection
         pxy = [self.g.pos[n] for n in self.case.police]
-        ordered = ordered_outgoing_segment_ids(self.network, fnode, None)
+        fxy0 = self.g.pos[fnode]
+        for k, b in enumerate(self.barricades):                  # barricades already in sight at the start
+            if math.dist(b.xy, fxy0) <= BARRICADE_SIGHT_M:
+                self.known.add(k)
+                self.known_sids.update(sid for sid, _ in b.at)
+        if self.known_sids:
+            _close(self.fg, self.known_sids)
+        ordered = [o for o in ordered_outgoing_segment_ids(self.network, fnode, None) if o not in self.known_sids] \
+            or ordered_outgoing_segment_ids(self.network, fnode, None)
         slot = int(self.evader.env_provider(self.network, pxy)(self.fid, fnode, ordered, 0))
         first = f"e{ordered[slot if slot < len(ordered) else 0]}"
         self.evader.prev_node = fnode
@@ -327,9 +485,9 @@ class SumoPursuit:
     def _emit(self, t, pxy, fxy, goals) -> None:
         self._last_goals = goals
         frame = dict(t=round(t, 2), p=[list(map(float, q)) for q in pxy], f=list(map(float, fxy)), goals=goals,
-                     reach=[self._reach(v) for v in self.police_ids + [self.fid]])
+                     reach=[self._reach(v) for v in self.police_ids + [self.fid]], known=sorted(self.known))
         if self.background:
-            mine = set(self.police_ids) | {self.fid}
+            mine = set(self.police_ids) | {self.fid} | set(self.blocker_ids)
             frame["bg"] = [list(map(float, self.conn.vehicle.getPosition(v)))
                            for v in self.conn.vehicle.getIDList() if v not in mine]
         if self.record:
@@ -348,10 +506,12 @@ class SumoPursuit:
             want = set(self.police_ids) | {self.fid}
             for _ in range(400):                                 # insert vehicles (a blocked start waits)
                 c.simulationStep()
-                if want <= set(c.vehicle.getIDList()):
+                live = set(c.vehicle.getIDList())
+                if want | set(self.blocker_ids) <= live:
                     break
             else:
-                raise RuntimeError("vehicles could not be inserted")
+                if not want <= live:
+                    raise RuntimeError("vehicles could not be inserted")
             while outcome is None:
                 live = set(c.vehicle.getIDList())
                 if self.fid not in live or any(v not in live for v in self.police_ids):
@@ -367,21 +527,39 @@ class SumoPursuit:
                     fug_pl, fsid = self._placement(self.fid)
                     fnode = int(self.seg[fsid].end_id)
                     goals = self.policy.targets(tuple(police_pl), fug_pl, int(t), self.case.max_steps, tuple(headings))
+                    if self.trapped is not None:                # trapped behind a barricade: close in for the arrest
+                        near = sorted(range(len(pxy)), key=lambda k: math.dist(pxy[k], fxy))[:2]
+                        goals = [("pursue", None) if k in near else g for k, g in enumerate(goals)]
                     for k, goal in enumerate(goals):
                         self._steer_police(k, goal, fnode)
                     if self.record or self.on_frame:
                         self._emit(t, pxy, fxy, goals)
-                self._steer_fugitive(pxy)
+                if self.barricades:
+                    self._see_barricades(fxy)
+                    if self._uturn is None:
+                        self._turn_back()
+                turning = self._uturn is not None
+                if not turning:
+                    self._steer_fugitive(pxy)
                 prev = self._current_edge(self.fid)
                 c.simulationStep()
                 i += 1
                 t = i * self.dt
+                if turning:
+                    self._uturn_steps += 1
+                    if self._current_edge(self.fid) == self._uturn:
+                        self._set_route(self.fid, [self._uturn])  # heading back: hold at its end until it decides
+                        self._uturn = None
+                        self._decided = {}
+                    elif self._uturn_steps > 8:                 # the move did not take: retry, then give up
+                        self._uturn_failed[self._uturn_from] = self._uturn_failed.get(self._uturn_from, 0) + 1
+                        self._uturn = None
                 pxy, fxy = self._positions()
                 if any(math.dist(q, fxy) <= self.case.capture_radius_m for q in pxy):
                     outcome = "success"
                     break
                 now = self._current_edge(self.fid)
-                if prev is not None and self.seg[_edge_sid(prev)].crosses_boundary:
+                if not turning and prev is not None and self.seg[_edge_sid(prev)].crosses_boundary:
                     lane_len = c.lane.getLength(f"{prev}_0")
                     if now != prev or c.vehicle.getLanePosition(self.fid) >= lane_len - 1.0:
                         outcome = "escape"

@@ -2,7 +2,7 @@
 :root {
   --bg: #eef1f5; --panel: #ffffff; --ink: #17202b; --muted: #5d6b7a; --line: #d6dce3;
   --police: #1d5fd0; --fugitive: #d8412c; --region: #e2533c; --target: #1d5fd0; --exit: #d99a00;
-  --bg-car: #8f9aa6; --ok: #17804c; --bad: #c03a2b; --accent: #17202b; --road: #6b7684; --tile-filter: none;
+  --bg-car: #8f9aa6; --ok: #17804c; --bad: #c03a2b; --accent: #17202b; --road: #6b7684; --barricade: #e07b00; --tile-filter: none;
   --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 }
@@ -10,11 +10,12 @@
   :root {
     --bg: #0e1319; --panel: #151c24; --ink: #e3e9ef; --muted: #93a1af; --line: #29333e;
     --police: #5b9bff; --fugitive: #ff6a52; --region: #ff6a52; --target: #5b9bff; --exit: #f2b632;
-    --bg-car: #6f7b88; --ok: #45c486; --bad: #ff7b6c; --accent: #e3e9ef; --road: #9aa6b4;
+    --bg-car: #6f7b88; --ok: #45c486; --bad: #ff7b6c; --accent: #e3e9ef; --road: #9aa6b4; --barricade: #f5a524;
     --tile-filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.4); color-scheme: dark;
   }
 }
 * { box-sizing: border-box }
+[hidden] { display: none !important }
 html, body { height: 100%; margin: 0 }
 body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans) }
 button, input, select { font: inherit; color: inherit }
@@ -46,6 +47,8 @@ input[type=url] { flex: 1; min-width: 0 }
 input[type=password] { width: 100% }
 .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
 .seg.three { grid-template-columns: repeat(3, 1fr) }
+.seg.three button { padding-inline: 4px; gap: 5px; white-space: nowrap }
+.seg .barr-key { width: 13px; height: 7px }
 .seg button { border: 0; background: transparent; padding: 7px 6px; cursor: pointer; font-size: 13px; display: flex; gap: 6px; align-items: center; justify-content: center }
 .seg.two button:nth-child(n+3) { border-top: 1px solid var(--line) }
 .seg button + button { border-left: 1px solid var(--line) }
@@ -98,6 +101,10 @@ input[type=range] { width: 100%; accent-color: var(--police) }
 .veh.police { background: var(--police) }
 .veh.fugitive { background: var(--fugitive); width: 20px; height: 20px }
 .veh.ghost { opacity: 0.55 }
+.barr-key, .barr { display: inline-block; width: 18px; height: 8px; border-radius: 2px; border: 1px solid var(--ink); flex: none;
+  background: repeating-linear-gradient(-45deg, var(--barricade) 0 4px, var(--panel) 4px 8px) }
+.barr { width: 24px; height: 11px; box-shadow: 0 1px 3px #0005 }
+.barr-key.seen, .barr.seen { outline: 3px solid var(--fugitive); outline-offset: 1px }
 .leaflet-container { font-family: var(--sans) }
 
 @media (max-width: 1000px) {
