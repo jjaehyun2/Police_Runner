@@ -281,3 +281,10 @@ Diagnosis: role mutations overfit the 3 train maps; head placed no-effect barric
 v2 (runs/bar_ga_v2): barricade.IMPACT_ONLY (only roads that shrink the region / shut an exit), role steps 0.01/0.03,
 final selection re-scores top-6 + never on fresh validation x2 and SUMO daejeon_demo (N=3,4), never may win.
 Held-out maps were looked at once for v1 diagnosis (role-only ablation); v2 changes were not tuned on them.
+v2 result (runs/bar_ga_v2, 20 gens, report 11:51): the chosen policy (g7_5) places **0 barricades** on every map — the
+head learned not to place once only impact roads were allowed. Remaining differences are the role scorer only:
+validation daejeon 97→100, incheon 92.3→92.7, suwon2 85.3→87.0; held-out daejeon_test 89.3→88.3, seoul 70.8→71.0,
+**busan 65.0→46.5** (6 W / 80 L); SUMO N=3 88.3→83.3, N=4 88→89, N=6 100→100. Hand rules (leave,stand-in) in SUMO:
+N=3 85.0, N=4 88.0, N=6 96.7 — no gain either. Conclusion: in ring starts with mid-chase placement, one barricade per
+car does not raise capture; GA role tuning on 3 train maps does not generalize (busan). Dashboard stays on
+runs/nvar_ga/best.pt; the carried-barricade option keeps the hand rules (prototype).
