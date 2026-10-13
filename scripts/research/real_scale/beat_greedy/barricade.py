@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import heapq
 import math
+import os
 
 import numpy as np
 import torch
@@ -29,6 +30,9 @@ REEVAL_S = 5                         # an officer staying at the same intersecti
 OFFSET_M = 20.0
 SIGHT_M = 80.0                       # the fugitive notices a barricade this close
 MARGIN_S = 25.0 / 16.0               # capture radius at officer speed, as escape_region
+# only roads that shrink the escape region or shut an exit (now or once the officer leaves) are
+# candidates; v1 (off) placed many no-effect barricades on unseen maps (seoul 2.7/ep, SR -8 pt)
+IMPACT_ONLY = os.environ.get("BG_IMPACT_ONLY", "1") == "1"
 FEATURES = (
     "open_cut_stay",      # share of open exits the road shuts (officer stays)
     "region_cut_stay",    # share of the escape region it removes (officer stays)
@@ -182,6 +186,8 @@ class Planner:
                     leave = ((o0 - o2) / max(o0, 1), (n0 - n2) / max(n0, 1))
                 else:
                     leave = (0.0, 0.0)
+                if IMPACT_ONLY and o1 >= base_open and n1 >= base_n and leave[0] <= 0 and leave[1] <= 0:
+                    continue                                   # shuts nothing: would only block the police
                 segs = [s for s in self.out.get(u, []) if self.seg[s].end_id == v] or \
                        [s for s in self.out.get(v, []) if self.seg[s].end_id == u]
                 length = float(self.seg[segs[0]].length_m) if segs else 100.0

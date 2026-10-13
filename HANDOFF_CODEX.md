@@ -271,3 +271,13 @@
 N=3: none 80.0, leave 80.0 (1/1), leave,stand-in 79.0 (1/2). N=6: 100 either way. Every failure without barricades is a late escape (126–272 s).
 Takeaways: in the Dunsan grid one closed road rarely shuts anything; placing often hurts because officers must route around barricades too; planned trips pull officers out of the cordon. Effect is within noise — a learned/searched placement (GA over placement features, scored on the same paired seeds) is the next step if this is pursued.
 Ops: the Vercel CLI token in ~/.local/share/com.vercel.cli/auth.json expired on 2026-10-13; `run_public.sh`'s env update needs `vercel login` again (git pushes and the deploy hook still deploy).
+
+### 7.z Joint role + barricade GA (bar_ga.py), v1 → v2 (2026-10-13)
+v1 (runs/bar_ga, 30 gens, report 08:39): learned vs never (success %, ring starts, 1 fugitive)
+- validation: daejeon 97.0→100 (all from role; head off = same), incheon 92.3→91.3, suwon2 85.3→86.3
+- held-out once: daejeon_test 89.3→90.3, seoul 70.8→59.8 (role-only 67.5, 2.74 barricades/ep), busan 65.0→57.8 (role-only 59.0)
+- SUMO daejeon_demo: N=3 88.3→68.3 (role-only 73.3), N=4 88→86, N=6 100→96.7
+Diagnosis: role mutations overfit the 3 train maps; head placed no-effect barricades on unseen maps; per-gen max-of-noisy validation selection (winner's curse).
+v2 (runs/bar_ga_v2): barricade.IMPACT_ONLY (only roads that shrink the region / shut an exit), role steps 0.01/0.03,
+final selection re-scores top-6 + never on fresh validation x2 and SUMO daejeon_demo (N=3,4), never may win.
+Held-out maps were looked at once for v1 diagnosis (role-only ablation); v2 changes were not tuned on them.

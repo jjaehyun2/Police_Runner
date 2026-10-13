@@ -47,6 +47,12 @@ POP = int(os.environ.get("BG_POP", "24"))
 ELITE = int(os.environ.get("BG_ELITE", "6"))
 WARM = os.environ.get("BG_WARM", "runs/nvar_ga/best.pt")
 VAL_TOP = 3
+# v1 role steps (0.03, 0.1) overfit the training maps: role-only -3/-6 pt on unseen maps, -15 pt in SUMO N=3
+ROLE_STEP = tuple(float(x) for x in os.environ.get("BG_ROLE_STEP", "0.01,0.03").split(","))
+FINAL_K = int(os.environ.get("BG_FINAL_K", "6"))
+SUMO_FINAL = {3: 60, 4: 60}
+if os.environ.get("BG_SMOKE"):
+    SUMO_FINAL = {4: 4}
 HEAD_HIDDEN = (32, 32)
 
 
@@ -146,6 +152,7 @@ def main() -> int:
     base_val, base_info = score(pop_dir / "never.pt", VAL, "bg-val")
     emit(dict(stage="baseline", name="never.pt", val=round(base_val, 4), **base_info))
     best_val, best_name = -1.0, None
+    history: dict = {}
     for g in range(gens + 1):
         t0 = time.time()
         fits = sorted(((score(p, TRAIN, f"bg-gen{g}")[0], p) for p in pop), key=lambda x: -x[0])
@@ -154,6 +161,7 @@ def main() -> int:
         for _, p in fits[:VAL_TOP]:
             v, info = score(p, VAL, "bg-val")
             vals[p.name] = dict(mean=round(v, 4), **info)
+            history[p] = max(history.get(p, -1.0), v)
             if v > best_val:
                 best_val, best_name = v, p.name
                 torch.save(torch.load(p, weights_only=False), out / "best.pt")
@@ -174,7 +182,7 @@ def main() -> int:
                 a = int(rng.integers(len(elites)))
                 sc, hd = load(elites[a])
                 what = ("head", "role", "both", "head")[k % 4]
-                hs, rs = (0.1, 0.03) if k % 2 == 0 else (0.3, 0.1)
+                hs, rs = (0.1, ROLE_STEP[0]) if k % 2 == 0 else (0.3, ROLE_STEP[1])
                 if what in ("head", "both"):
                     hd = mutate(hd, rng, hs)
                 if what in ("role", "both"):
@@ -185,7 +193,40 @@ def main() -> int:
             children.append(p)
             k += 1
         pop = children
+    final_select(out, history, emit)
     return 0
+
+
+def sumo_score(path: Path) -> float:
+    """Success rate in SUMO (daejeon_demo, ring starts; not a held-out map) over SUMO_FINAL."""
+    from multiprocessing import get_context
+    import bar_report
+    rows = []
+    with get_context("fork").Pool(int(os.environ.get("ME_WORKERS", "32"))) as p:
+        for n, eps in SUMO_FINAL.items():
+            rows += p.map(bar_report._sumo_one, [(f"bmacro:{path}", s, n, None) for s in range(1000, 1000 + eps)],
+                          chunksize=1)
+    return float(np.mean([r[1] == "success" for r in rows]))
+
+
+def final_select(out: Path, history: dict, emit) -> None:
+    """The per-generation best is the max of many noisy validation scores (winner's curse: v1 picked
+    0.935 vs 0.9125 for never, but fresh cases gave never 91.5 / learned 92.5). Re-score the FINAL_K
+    best and "never" on fresh validation cases (x2) and in SUMO; the best mean of the two wins,
+    "never" included, so "use no barricades" stays a possible answer."""
+    pool = [p for p, _ in sorted(history.items(), key=lambda kv: -kv[1])[:FINAL_K]]
+    pool += [] if out / "pop" / "never.pt" in pool else [out / "pop" / "never.pt"]
+    fresh = {k: 2 * v for k, v in VAL.items()}
+    best = None
+    for p in pool:
+        v, info = score(p, fresh, "bg-final")
+        su = sumo_score(p)
+        total = 0.5 * v + 0.5 * su
+        emit(dict(stage="final", name=p.name, val_fresh=round(v, 4), sumo=round(su, 4), total=round(total, 4), **info))
+        if best is None or total > best[0]:
+            best = (total, p)
+    torch.save(torch.load(best[1], weights_only=False), out / "best.pt")
+    emit(dict(stage="chosen", name=best[1].name, total=round(best[0], 4)))
 
 
 if __name__ == "__main__":

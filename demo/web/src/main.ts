@@ -28,7 +28,7 @@ function apiHeaders(base: HeadersInit = {}) {
 }
 function apiError(context: string, err: unknown) {
   const msg = err instanceof Error ? err.message : String(err);
-  const auth = msg.includes("401") ? " 접근 토큰이 맞는지 확인하세요." : "";
+  const auth = msg.includes("401") ? " 접근 토큰이 맞는지 확인해 주세요." : "";
   const where = apiBase || "현재 페이지와 같은 주소";
   return `${context} (${msg}). 서버 주소: ${where}.${auth}`;
 }
@@ -177,7 +177,7 @@ $("clear").addEventListener("click", () => {
 });
 $("example").addEventListener("click", async () => {
   if (!info) return;
-  if (replayMap) { setStatus("error", "녹화 시연에서는 새 배치를 만들 수 없습니다. 서버 주소를 확인하고 지도를 다시 불러오세요."); return; }
+  if (replayMap) { setStatus("error", "녹화 시연에서는 새 배치를 만들 수 없어요. 서버 주소를 확인하고 지도를 다시 불러와 주세요."); return; }
   const n = Math.max(2, Math.min(12, Number($<HTMLInputElement>("exampleN").value) || 6));
   try {
     const r = await fetch(api("/api/example"), { method: "POST", headers: apiHeaders({ "content-type": "application/json" }),
@@ -187,7 +187,7 @@ $("example").addEventListener("click", async () => {
     police = d.police.map((p) => L.latLng(p[0], p[1]));
     fugitive = L.latLng(d.fugitive[0], d.fugitive[1]);
     showPlacement(); drawPlacement();
-  } catch (err) { setStatus("error", apiError("예시 배치를 불러오지 못했습니다", err)); }
+  } catch (err) { setStatus("error", apiError("예시 배치를 불러오지 못했어요", err)); }
 });
 
 function showPlacement() {
@@ -209,13 +209,13 @@ async function loadMaps() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const list = await r.json() as { name: string; label: string }[];
     const sel = $<HTMLSelectElement>("mapSelect");
-    if (!list.length) throw new Error("지도 목록이 비어 있습니다");
+    if (!list.length) throw new Error("지도 목록이 비어 있어요");
     sel.innerHTML = list.map((m) => `<option value="${m.name}">${m.label}</option>`).join("");
-    sel.onchange = () => loadMap(sel.value).catch((err) => setStatus("error", apiError("지도를 불러오지 못했습니다", err)));
+    sel.onchange = () => loadMap(sel.value).catch((err) => setStatus("error", apiError("지도를 불러오지 못했어요", err)));
     await loadMap(list[0].name);
-    setStatus("idle", "지도를 클릭해 경찰차와 도주차를 배치하세요");
+    setStatus("idle", "지도를 눌러 경찰차와 도주차를 놓아 주세요");
   } catch (err) {
-    setStatus("error", `${apiError("서버에 연결하지 못했습니다", err)} 녹화된 SUMO 시연은 재생할 수 있습니다.`);
+    setStatus("error", `${apiError("서버에 연결하지 못했어요", err)} 녹화된 SUMO 시연은 볼 수 있어요.`);
   }
 }
 async function loadMap(name: string) {
@@ -235,7 +235,7 @@ $("fallback").addEventListener("click", async () => {
     const res = await fetch("/fallback.json");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const saved = await res.json() as { map: MapInfo; setup: Setup; frames: Frame[]; outcome: string; seconds: number };
-    if (!saved.frames.length) throw new Error("녹화 프레임이 없습니다");
+    if (!saved.frames.length) throw new Error("녹화 프레임이 없어요");
     replayMap = true;
     showMap(saved.map);
     police = saved.setup.police.map((p) => L.latLng(p[0], p[1]));
@@ -251,16 +251,16 @@ $("fallback").addEventListener("click", async () => {
     playing = true;
     tickStart();
   } catch (err) {
-    setStatus("error", `녹화 시연을 열지 못했습니다 (${(err as Error).message}).`);
+    setStatus("error", `녹화 시연을 열지 못했어요 (${(err as Error).message}).`);
   }
 });
 
 $("run").addEventListener("click", startRun);
 async function startRun() {
   if (!info) return;
-  if (replayMap) { setStatus("error", "녹화 시연은 현재 배치로 다시 계산할 수 없습니다. 서버에 연결한 뒤 지도를 다시 불러오세요."); return; }
+  if (replayMap) { setStatus("error", "녹화 시연은 현재 배치로 다시 계산할 수 없어요. 서버에 연결한 뒤 지도를 다시 불러와 주세요."); return; }
   if (!police.length || !fugitive) { setStatus("error", "경찰차를 1대 이상, 도주차를 1대 놓아 주세요"); return; }
-  if (barricades.length && opts.engine !== "sumo") { setStatus("error", "바리케이드는 SUMO 시뮬레이터에서만 쓸 수 있습니다. 시뮬레이터를 SUMO로 바꾸거나 바리케이드를 지워 주세요."); return; }
+  if (barricades.length && opts.engine !== "sumo") { setStatus("error", "바리케이드는 SUMO 시뮬레이터에서만 쓸 수 있어요. 시뮬레이터를 SUMO로 바꾸거나 바리케이드를 지워 주세요."); return; }
   const body = {
     map: info.name, police: police.map((p) => [p.lat, p.lng]), fugitive: [fugitive.lat, fugitive.lng],
     barricades: barricades.map((p) => [p.lat, p.lng]),
@@ -275,7 +275,7 @@ async function startRun() {
     label: `${policyLabel} · ${ENGINE[opts.engine]}${cond ? ` (${cond})` : ""} · 경찰 ${police.length}대${barricades.length ? ` · 바리케이드 ${barricades.length}` : ""}${body.carry_barricades ? " · 차량 바리케이드" : ""}` };
   runs.unshift(run); select(run); renderHistory();
   $<HTMLButtonElement>("run").disabled = true;
-  setStatus("running", opts.engine === "sumo" && body.traffic ? "SUMO 준비 중 · 일반 교통을 먼저 채웁니다" : "계산 중…");
+  setStatus("running", opts.engine === "sumo" && body.traffic ? "SUMO 준비 중 · 일반 교통을 먼저 채우고 있어요" : "계산 중…");
   map.removeLayer(placeLayer);
   try {
     const res = await fetch(api("/api/run"), { method: "POST", headers: apiHeaders({ "content-type": "application/json" }), body: JSON.stringify(body) });
@@ -489,7 +489,7 @@ function renderHistory() {
 // server address control
 function renderApiHint() {
   const origin = apiBase || "현재 페이지와 같은 주소";
-  const secureNote = apiBase && !apiBase.startsWith("https://") ? " · Vercel 배포에서는 HTTPS 주소를 권장합니다" : "";
+  const secureNote = apiBase && !apiBase.startsWith("https://") ? " · Vercel 배포에서는 HTTPS 주소를 권장해요" : "";
   const tokenNote = apiToken ? " · 토큰은 이 탭 세션에만 저장됨" : " · 토큰이 있으면 X-Demo-Token 헤더로 전송";
   $("apiHint").textContent = `${origin}${secureNote}${tokenNote}`;
 }

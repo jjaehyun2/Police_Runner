@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>포위 검거 시뮬레이터</title>
   <meta name="description" content="실제 도로 지도 위에 경찰차와 도주차를 배치하고, SUMO 교통 시뮬레이터에서 경찰이 탈출로를 끊어 가며 검거하는 과정을 실시간으로 봅니다." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" />
+  <meta name="theme-color" content="#F9FAFB" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
 </head>
 <body>
   <div class="app">
@@ -16,7 +16,7 @@
         <h1>포위 검거 시뮬레이터</h1>
         <span class="sub" id="mapLabel">대전 둔산</span>
       </div>
-      <div class="status" id="status" data-state="idle">배치를 마치고 추격을 시작하세요</div>
+      <div class="status" id="status" data-state="idle">배치를 마치고 추격을 시작해 보세요</div>
     </header>
 
     <aside class="panel left" aria-label="배치와 실행 설정">
@@ -32,8 +32,8 @@
           <button type="button" id="modeFugitive" aria-pressed="false"><span class="dot fugitive"></span>도주차</button>
           <button type="button" id="modeBarricade" aria-pressed="false"><span class="barr-key"></span>바리케이드</button>
         </div>
-        <p class="hint">지도를 클릭해 놓고, 끌어서 옮기고, 경찰차·바리케이드를 다시 클릭하면 지웁니다. 차량은 가장 가까운 교차로에, 바리케이드는 가장 가까운 도로에 놓입니다(양방향 통제).</p>
-        <p class="hint">경찰은 바리케이드 위치를 처음부터 알고 피해 다닙니다. 도주차는 80 m 안에 들어와야 알아채고, 그때 경로를 바꾸거나 되돌아갑니다. SUMO에서만 쓸 수 있습니다.</p>
+        <p class="hint">지도를 눌러 놓고, 끌어서 옮길 수 있어요. 경찰차·바리케이드를 다시 누르면 지워져요. 차량은 가장 가까운 교차로에, 바리케이드는 가장 가까운 도로에 놓여요(양방향 통제).</p>
+        <p class="hint">경찰은 바리케이드 위치를 처음부터 알고 피해 다녀요. 도주차는 80 m 안에 들어와야 알아채고, 그때 경로를 바꾸거나 되돌아가요. SUMO에서만 쓸 수 있어요.</p>
         <div class="row">
           <button type="button" class="btn" id="example">예시 배치</button>
           <label class="inline" for="exampleN">경찰</label>
@@ -79,7 +79,7 @@
 
       <button type="button" class="run" id="run">추격 시작</button>
       <button type="button" class="btn replay" id="fallback">녹화된 SUMO 시연 보기</button>
-      <p class="hint">녹화 시연은 미리 계산한 대전 사례입니다. 현재 배치와 설정은 적용되지 않습니다.</p>
+      <p class="hint">미리 계산해 둔 대전 사례예요. 지금 배치와 설정은 적용되지 않아요.</p>
 
       <details class="server">
         <summary>서버 주소</summary>
@@ -123,11 +123,11 @@
       </section>
       <section class="group">
         <div class="label">경찰별 임무</div>
-        <table class="officers"><tbody id="officers"><tr><td class="empty">추격을 시작하면 여기 표시됩니다.</td></tr></tbody></table>
+        <table class="officers"><tbody id="officers"><tr><td class="empty">추격을 시작하면 여기에 보여요.</td></tr></tbody></table>
       </section>
       <section class="group">
         <div class="label">실행 기록</div>
-        <ol class="history" id="history"><li class="empty">아직 실행한 기록이 없습니다.</li></ol>
+        <ol class="history" id="history"><li class="empty">아직 실행한 기록이 없어요.</li></ol>
       </section>
     </aside>
   </div>
