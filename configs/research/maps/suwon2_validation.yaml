@@ -1,0 +1,30 @@
+schema_version: '1.0'
+map_id: suwon2-validation-v1
+city: Suwon
+role: validation
+query: live bounded OSMnx/Overpass drive-network query over the recorded bbox
+query_geometry:
+  type: Polygon
+  coordinates:
+  - - - 127.02
+      - 37.27
+    - - 127.05
+      - 37.27
+    - - 127.05
+      - 37.3
+    - - 127.02
+      - 37.3
+    - - 127.02
+      - 37.27
+source: OpenStreetMap contributors via OSMnx
+service: Overpass API
+service_version: osmnx==2.1.1
+acquired_at_utc: '2026-10-11T16:55:35.105122+00:00'
+preprocessing_version: decision-chain-v1+colocated-virtual-chain-v1
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/0e4ab9a62bd1d87136492e53af51531873d161a1d3c379c86e44b99ec43dfe24/raw_osm.json
+network_path: cache/research/maps/0e4ab9a62bd1d87136492e53af51531873d161a1d3c379c86e44b99ec43dfe24/model_network.json
+raw_file_hash: f295d25925ce17d3959718a0b488d90bcbd6047976eadc82928387fea379a4df
+network_file_hash: 1d75340758e129a87bf50a6966aa125b0081da797bc16e81dce69d261047c935
+network_content_hash: 1d75340758e129a87bf50a6966aa125b0081da797bc16e81dce69d261047c935
+polygon_content_hash: 0e4ab9a62bd1d87136492e53af51531873d161a1d3c379c86e44b99ec43dfe24

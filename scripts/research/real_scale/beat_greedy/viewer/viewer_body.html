@@ -1,0 +1,254 @@
+<div class="wrap">
+  <header>
+    <h1>추격 리플레이 뷰어</h1>
+    <p>도주차는 지도 한가운데, 경찰차는 처음부터 400~700 m 거리에서 사방을 둘러싼 채 시작합니다. <b>SUMO</b> 표시가 붙은 대전 판은 교통 시뮬레이터 SUMO(TraCI)에서 실제로 차량을 움직인 결과이고, 정책은 매초 각 경찰차의 목표 지점만 정하며 주행은 SUMO가 맡습니다. 붉게 칠해진 도로는 <b>도주차가 어느 경찰보다 먼저 닿을 수 있는 영역</b>입니다. 경찰이 탈출로를 끊을수록 이 영역이 줄고, 지도 경계 출구가 영역에서 모두 빠지면 포위가 완성됩니다. 서울·부산은 학습에 쓰지 않은 지도입니다. 최고 속도는 경찰·도주차 모두 16 m/s입니다.</p>
+  </header>
+  <div class="episodes" id="episodes"></div>
+  <div class="main">
+    <div class="stage">
+      <canvas id="map" width="1200" height="900" aria-label="도로 지도 위 경찰과 도주차 위치"></canvas>
+      <div class="hud"><span class="chip clock" id="hudStep"></span><span class="chip" id="hudExits"></span><span class="chip" id="hudOutcome"></span></div>
+      <button class="btn fit" id="fit" type="button">전체 보기</button>
+    </div>
+    <div class="side">
+      <div class="box">
+        <div class="label">정책</div>
+        <div class="seg" role="group" aria-label="정책 선택">
+          <button type="button" id="polGa" aria-pressed="true">GA 역할 정책</button>
+          <button type="button" id="polEnc" aria-pressed="false">포위 (기준)</button>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="play" type="button">▶ 재생</button>
+          <button class="btn" id="back" type="button" aria-label="한 스텝 뒤로">◀ 1초</button>
+          <button class="btn" id="fwd" type="button" aria-label="한 스텝 앞으로">1초 ▶</button>
+          <select id="speed" aria-label="재생 속도"><option value="2">2×</option><option value="5" selected>5×</option><option value="10">10×</option><option value="20">20×</option></select>
+        </div>
+        <input type="range" id="scrub" min="0" max="1" value="0" aria-label="스텝 이동">
+        <div class="row" style="justify-content:space-between"><span class="clock" id="clock"></span><span class="note">스페이스: 재생 · ←/→: 1초</span></div>
+      </div>
+      <div class="box">
+        <div class="label">열린 탈출 출구 수</div>
+        <canvas id="spark" width="600" height="120" style="aspect-ratio:5/1;cursor:default" aria-label="시간에 따른 열린 출구 수"></canvas>
+        <p class="note" id="sparkNote"></p>
+      </div>
+      <div class="box">
+        <div class="label">경찰별 현재 임무</div>
+        <table><tbody id="officers"></tbody></table>
+        <p class="note" id="roleNote"></p>
+      </div>
+      <div class="box legend">
+        <div class="label">범례</div>
+        <div><span class="dot">1</span>경찰차 (번호)</div>
+        <div><span class="dot" style="background:var(--fugitive)"></span>도주차 · 연한 원은 검거 반경 25 m</div>
+        <div><span class="sw" style="border-color:var(--fugitive);border-top-width:5px;opacity:.55"></span>도주차가 경찰보다 먼저 닿는 도로 (도주 가능 영역)</div>
+        <div><span class="sw" style="border-color:var(--route-open);border-top-width:0;width:12px;height:12px;border-radius:50%;background:var(--route-open)"></span>아직 열린 경계 출구</div>
+        <div><span class="sw" style="border-color:var(--police);border-top-style:dotted"></span>경찰 → 차단 지점(□)</div>
+        <div><span class="sw" style="border-color:var(--exit);border-top-width:4px;width:8px"></span>지도 경계 출구</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script type="application/json" id="data">__DATA__</script>
+<script>
+(() => {
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const cv = document.getElementById('map'), ctx = cv.getContext('2d');
+  const $ = id => document.getElementById(id);
+  const MAPNAME = { daejeon_demo: '대전 둔산', seoul_zero_shot: '서울', busan_zero_shot: '부산' };
+  const ENGINE = { sumo: 'SUMO', point: '자체 시뮬레이터' };
+  const KIND = { win: 'GA 검거 · 포위 놓침', both: '둘 다 검거', lose: 'GA 놓침 · 포위 검거' };
+  const OUT = { success: '검거', escape: '탈출', timeout: '시간초과' };
+  let ep = 0, pol = 'ga', step = 0, playing = false, view = null, colors = {};
+
+  function readColors() {
+    const cs = getComputedStyle(document.documentElement);
+    for (const k of ['map','road','road-edge','police','police-soft','fugitive','fugitive-soft','route-open','route-closed','exit','ink','panel','muted'])
+      colors[k] = cs.getPropertyValue('--' + k).trim();
+  }
+  readColors();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); draw(); });
+  new MutationObserver(() => { readColors(); draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // episode buttons
+  D.episodes.forEach((e, i) => {
+    const b = document.createElement('button');
+    b.className = 'ep'; b.type = 'button';
+    const g = e.runs.ga, c = e.runs.enc;
+    b.innerHTML = `<span class="t">${MAPNAME[e.map] || e.map} · 경찰 ${e.n}대 <span class="eng ${e.engine}">${ENGINE[e.engine]}</span></span>
+      <span class="s">${KIND[e.kind]}</span>
+      <span class="s">GA ${OUT[g.outcome]} ${g.steps}초 · 포위 ${OUT[c.outcome]} ${c.steps}초</span>`;
+    b.addEventListener('click', () => selectEp(i));
+    $('episodes').appendChild(b);
+  });
+
+  const run = () => D.episodes[ep].runs[pol];
+  const map = () => D.maps[D.episodes[ep].map];
+
+  function fitView() {
+    const fr = run().frames; let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    const add = ([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); };
+    // frame the action (all positions over the episode) with margin, not the whole city
+    for (const f of fr) { f.p.forEach(add); add(f.f); }
+    const pad = Math.max(x1 - x0, y1 - y0) * 0.18 + 150;
+    x0 -= pad; x1 += pad; y0 -= pad; y1 += pad;
+    const s = Math.min(cv.width / (x1 - x0), cv.height / (y1 - y0));
+    view = { s, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
+  }
+  const W = ([x, y]) => [cv.width / 2 + (x - view.cx) * view.s, cv.height / 2 - (y - view.cy) * view.s];
+
+  const bitCache = new Map();
+  function decodeBits(b64) {
+    let v = bitCache.get(b64);
+    if (!v) { const s = atob(b64); v = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) v[i] = s.charCodeAt(i); if (bitCache.size > 4000) bitCache.clear(); bitCache.set(b64, v); }
+    return v;
+  }
+  function line(pts, color, width, dash) {
+    if (!pts || pts.length < 2) return;
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []);
+    pts.forEach((p, i) => { const [x, y] = W(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  function draw() {
+    if (!view) return;
+    const k = cv.width / 1200;
+    ctx.fillStyle = colors.map; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const rw = Math.max(1.2, Math.min(4, view.s * 9)) * k;
+    for (const r of map().roads) line(r, colors.road, rw);
+    ctx.fillStyle = colors.exit;
+    for (const e of map().exits) { const [x, y] = W(e); ctx.fillRect(x - 4 * k, y - 4 * k, 8 * k, 8 * k); }
+    const R = run(), f = R.frames[step];
+    // escape region: roads the fugitive reaches before every officer
+    const reg = decodeBits(f.reg), roads = map().roads;
+    ctx.globalAlpha = 0.55;
+    for (let i = 0; i < roads.length; i++) if (reg[i >> 3] & (1 << (i & 7))) line(roads[i], colors.fugitive, rw * 2.2);
+    ctx.globalAlpha = 1;
+    for (const e of f.ox) { const [x, y] = W(e); ctx.beginPath(); ctx.fillStyle = colors['route-open']; ctx.arc(x, y, 7 * k, 0, 7); ctx.fill(); ctx.lineWidth = 2 * k; ctx.strokeStyle = colors.map; ctx.stroke(); }
+    // trails
+    const t0 = Math.max(0, step - 40);
+    line(R.frames.slice(t0, step + 1).map(q => q.f), colors['fugitive-soft'], 5 * k);
+    f.p.forEach((_, j) => line(R.frames.slice(Math.max(0, step - 20), step + 1).map(q => q.p[j]), colors['police-soft'], 4 * k));
+    // officer -> target
+    if (f.tgt) f.tgt.forEach((t, j) => {
+      if (!t) return;
+      line([f.p[j], t], colors.police, 1.6 * k, [2 * k, 5 * k]);
+      const [x, y] = W(t); ctx.strokeStyle = colors.police; ctx.lineWidth = 2 * k; ctx.strokeRect(x - 7 * k, y - 7 * k, 14 * k, 14 * k);
+    });
+    // fugitive
+    const [fx, fy] = W(f.f);
+    ctx.beginPath(); ctx.fillStyle = colors['fugitive-soft']; ctx.arc(fx, fy, Math.max(25 * view.s, 6 * k), 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.fillStyle = colors.fugitive; ctx.arc(fx, fy, 8 * k, 0, 7); ctx.fill();
+    ctx.lineWidth = 2 * k; ctx.strokeStyle = colors.map; ctx.stroke();
+    // police
+    f.p.forEach((p, j) => {
+      const [x, y] = W(p);
+      ctx.beginPath(); ctx.fillStyle = colors.police; ctx.arc(x, y, 10 * k, 0, 7); ctx.fill();
+      ctx.lineWidth = 2 * k; ctx.strokeStyle = colors.map; ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = `600 ${11 * k}px IBM Plex Mono, monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(j + 1), x, y + 0.5); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    });
+    // scale bar
+    const m = 200, px = m * view.s, x0 = 16 * k, y0 = cv.height - 18 * k;
+    ctx.strokeStyle = colors.ink; ctx.lineWidth = 2 * k; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + px, y0); ctx.stroke();
+    ctx.fillStyle = colors.ink; ctx.font = `${12 * k}px IBM Plex Mono, monospace`; ctx.fillText('200 m', x0, y0 - 6 * k);
+    panel(f, R);
+  }
+
+  function panel(f, R) {
+    const last = step === R.frames.length - 1;
+    $('hudStep').textContent = `${step}초 / ${R.steps}초`;
+    const o = $('hudOutcome');
+    o.textContent = last ? `결과: ${OUT[R.outcome]}` : `진행 중 · 최종 ${OUT[R.outcome]}`;
+    o.className = 'chip ' + (last ? (R.outcome === 'success' ? 'ok' : 'bad') : '');
+    const nx = f.ox.length;
+    const he = $('hudExits'); he.textContent = nx ? `열린 출구 ${nx}개` : '탈출로 모두 차단';
+    he.className = 'chip ' + (nx ? '' : 'ok');
+    spark(R);
+    $('clock').textContent = `t = ${String(step).padStart(3, ' ')} s`;
+    $('scrub').max = R.frames.length - 1; $('scrub').value = step;
+    const rows = f.p.map((p, j) => {
+      const d = Math.hypot(p[0] - f.f[0], p[1] - f.f[1]);
+      const r = f.role ? f.role[j] : 0;
+      let tag;
+      if (pol === 'ga') tag = r === 0 ? '<span class="role pursue">직접 추격</span>' : '<span class="role guard">탈출로 차단 □</span>';
+      else tag = r === 0 ? '<span class="role pursue">직접 추격</span>' : '<span class="role guard">포위망 위치</span>';
+      return `<tr><td class="n"><span class="dot">${j + 1}</span></td><td>${tag}</td><td class="d">${Math.round(d)} m</td></tr>`;
+    });
+    $('officers').innerHTML = rows.join('');
+    $('roleNote').textContent = pol === 'ga'
+      ? '6초마다 임무를 다시 정합니다. 도주차와 가까운 경찰부터 한 명씩, 동료가 이미 맡은 탈출로를 보고 직접 추격할지, 아직 열린 탈출로 중 어디를 먼저 막을지 고릅니다. □는 그 탈출로에서 도주차보다 먼저 도착할 수 있는 차단 지점입니다. 오른쪽 숫자는 도주차까지 직선거리입니다.'
+      : '포위 정책은 가장 가까운 경찰이 추격하고, 나머지는 도주 방향 기준 일정 각도의 도로 링 위 지점으로 갑니다. 오른쪽 숫자는 도주차까지 직선거리입니다.';
+  }
+
+  function spark(R) {
+    const c = $('spark'), g = c.getContext('2d'), w = c.width, h = c.height, n = R.frames.length;
+    const ys = R.frames.map(q => q.ox.length), mx = Math.max(1, ...ys);
+    g.fillStyle = colors.panel; g.fillRect(0, 0, w, h);
+    const X = i => 8 + (w - 16) * i / Math.max(1, n - 1), Y = v => h - 18 - (h - 30) * v / mx;
+    g.strokeStyle = colors['road-edge']; g.lineWidth = 1;
+    for (const v of [0, mx]) { g.beginPath(); g.moveTo(8, Y(v)); g.lineTo(w - 8, Y(v)); g.stroke(); }
+    g.beginPath(); ys.forEach((v, i) => i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v)));
+    g.lineTo(X(n - 1), Y(0)); g.lineTo(X(0), Y(0)); g.closePath(); g.fillStyle = colors['fugitive-soft']; g.fill();
+    g.beginPath(); ys.forEach((v, i) => i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))); g.strokeStyle = colors.fugitive; g.lineWidth = 2; g.stroke();
+    g.strokeStyle = colors.ink; g.lineWidth = 1.5; g.beginPath(); g.moveTo(X(step), 4); g.lineTo(X(step), h - 14); g.stroke();
+    g.fillStyle = colors.muted; g.font = '20px IBM Plex Mono, monospace';
+    g.fillText(String(mx), 10, Y(mx) - 4); g.fillText('0', 10, h - 2); g.textAlign = 'right'; g.fillText(`${n - 1}초`, w - 8, h - 2); g.textAlign = 'start';
+    const z = ys.findIndex(v => v === 0);
+    $('sparkNote').textContent = z < 0 ? '이 판에서는 모든 출구가 막힌 순간이 없습니다.' : `${z}초에 처음으로 모든 출구가 막혔습니다. 최종 결과: ${OUT[R.outcome]} (${R.steps}초).`;
+  }
+
+  function setStep(s) { step = Math.max(0, Math.min(run().frames.length - 1, s)); draw(); }
+  function selectEp(i) {
+    ep = i; [...$('episodes').children].forEach((b, j) => b.setAttribute('aria-pressed', j === i));
+    stop(); step = 0; fitView(); draw();
+  }
+  function setPol(p) {
+    pol = p; $('polGa').setAttribute('aria-pressed', p === 'ga'); $('polEnc').setAttribute('aria-pressed', p === 'enc');
+    step = Math.min(step, run().frames.length - 1); draw();
+  }
+  let timer = null, acc = 0, lastT = 0;
+  function tick(t) {
+    if (!playing) return;
+    acc += (t - lastT) / 1000 * +$('speed').value; lastT = t;
+    if (acc >= 1) { const n = Math.floor(acc); acc -= n; setStep(step + n); }
+    if (step >= run().frames.length - 1) { stop(); return; }
+    timer = requestAnimationFrame(tick);
+  }
+  function play() { if (step >= run().frames.length - 1) step = 0; playing = true; $('play').textContent = '❚❚ 정지'; lastT = performance.now(); acc = 0; timer = requestAnimationFrame(tick); }
+  function stop() { playing = false; $('play').textContent = '▶ 재생'; if (timer) cancelAnimationFrame(timer); }
+
+  $('play').addEventListener('click', () => playing ? stop() : play());
+  $('back').addEventListener('click', () => { stop(); setStep(step - 1); });
+  $('fwd').addEventListener('click', () => { stop(); setStep(step + 1); });
+  $('scrub').addEventListener('input', e => { stop(); setStep(+e.target.value); });
+  $('polGa').addEventListener('click', () => setPol('ga'));
+  $('polEnc').addEventListener('click', () => setPol('enc'));
+  $('fit').addEventListener('click', () => { fitView(); draw(); });
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    if (e.code === 'Space') { e.preventDefault(); playing ? stop() : play(); }
+    if (e.code === 'ArrowRight') { stop(); setStep(step + 1); }
+    if (e.code === 'ArrowLeft') { stop(); setStep(step - 1); }
+  });
+  // pan & zoom
+  let drag = null;
+  const scale = () => cv.width / cv.getBoundingClientRect().width;
+  cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => {
+    if (!drag) return; const s = scale();
+    view.cx -= (e.clientX - drag.x) * s / view.s; view.cy += (e.clientY - drag.y) * s / view.s;
+    drag = { x: e.clientX, y: e.clientY }; draw();
+  });
+  cv.addEventListener('pointerup', () => drag = null);
+  cv.addEventListener('wheel', e => {
+    e.preventDefault(); const f = Math.exp(-e.deltaY * 0.0015);
+    const rect = cv.getBoundingClientRect(), s = scale();
+    const mx = (e.clientX - rect.left) * s, my = (e.clientY - rect.top) * s;
+    const wx = view.cx + (mx - cv.width / 2) / view.s, wy = view.cy - (my - cv.height / 2) / view.s;
+    view.s *= f; view.cx = wx - (mx - cv.width / 2) / view.s; view.cy = wy + (my - cv.height / 2) / view.s; draw();
+  }, { passive: false });
+  if (document.fonts) document.fonts.ready.then(draw);
+  selectEp(0);
+})();
+</script>

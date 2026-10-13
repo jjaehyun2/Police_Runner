@@ -1,0 +1,30 @@
+schema_version: '1.0'
+map_id: incheon-validation-v1
+city: Incheon
+role: validation
+query: live bounded OSMnx/Overpass drive-network query over the recorded bbox
+query_geometry:
+  type: Polygon
+  coordinates:
+  - - - 126.71
+      - 37.48
+    - - 126.74
+      - 37.48
+    - - 126.74
+      - 37.51
+    - - 126.71
+      - 37.51
+    - - 126.71
+      - 37.48
+source: OpenStreetMap contributors via OSMnx
+service: Overpass API
+service_version: osmnx==2.1.1
+acquired_at_utc: '2026-10-11T16:48:46.206081+00:00'
+preprocessing_version: decision-chain-v1+colocated-virtual-chain-v1
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/f4736739ca5a697cc41aeff22003d68edad9c0546c6bfe1139fb1a5099c4b541/raw_osm.json
+network_path: cache/research/maps/f4736739ca5a697cc41aeff22003d68edad9c0546c6bfe1139fb1a5099c4b541/model_network.json
+raw_file_hash: 3b03d718f0d3eecfc446e26277c614bc886f2d31af123bdad96f02d65d475a7c
+network_file_hash: f8102aaa7aed42deadcd07e07ab831d6e9be10e89bb1a5fe9c09d38ce9ada86b
+network_content_hash: f8102aaa7aed42deadcd07e07ab831d6e9be10e89bb1a5fe9c09d38ce9ada86b
+polygon_content_hash: f4736739ca5a697cc41aeff22003d68edad9c0546c6bfe1139fb1a5099c4b541

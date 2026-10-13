@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>포위 검거 시뮬레이터</title>
+  <meta name="description" content="실제 도로 지도 위에 경찰차와 도주차를 배치하고, SUMO 교통 시뮬레이터에서 경찰이 탈출로를 끊어 가며 검거하는 과정을 실시간으로 봅니다." />
+  <meta name="theme-color" content="#F9FAFB" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <h1>포위 검거 시뮬레이터</h1>
+        <span class="sub" id="mapLabel">대전 둔산</span>
+      </div>
+      <div class="status" id="status" data-state="idle">배치를 마치고 추격을 시작해 보세요</div>
+    </header>
+
+    <aside class="panel left" aria-label="배치와 실행 설정">
+      <section class="group">
+        <label class="label" for="mapSelect">지도</label>
+        <select id="mapSelect"></select>
+      </section>
+
+      <section class="group">
+        <div class="label">배치</div>
+        <div class="seg three" role="group" aria-label="지도 클릭 시 놓을 것">
+          <button type="button" id="modePolice" aria-pressed="true"><span class="dot police"></span>경찰차</button>
+          <button type="button" id="modeFugitive" aria-pressed="false"><span class="dot fugitive"></span>도주차</button>
+          <button type="button" id="modeBarricade" aria-pressed="false"><span class="barr-key"></span>바리케이드</button>
+        </div>
+        <p class="hint">지도를 눌러 놓고, 끌어서 옮길 수 있어요. 경찰차·바리케이드를 다시 누르면 지워져요. 차량은 가장 가까운 교차로에, 바리케이드는 가장 가까운 도로에 놓여요(양방향 통제).</p>
+        <p class="hint">경찰은 바리케이드 위치를 처음부터 알고 피해 다녀요. 도주차는 80 m 안에 들어와야 알아채고, 그때 경로를 바꾸거나 되돌아가요. SUMO에서만 쓸 수 있어요.</p>
+        <div class="row">
+          <button type="button" class="btn" id="example">예시 배치</button>
+          <label class="inline" for="exampleN">경찰</label>
+          <input id="exampleN" type="number" min="2" max="12" value="6" />
+          <span class="inline">대</span>
+          <button type="button" class="btn ghost" id="clear">모두 지우기</button>
+        </div>
+        <div class="counts" id="counts"></div>
+      </section>
+
+      <section class="group">
+        <div class="label">경찰 정책</div>
+        <div class="seg two" role="group" aria-label="경찰 정책" id="policySeg">
+          <button type="button" data-v="ga" aria-pressed="true">GA 역할 정책</button>
+          <button type="button" data-v="encircle" aria-pressed="false">포위</button>
+          <button type="button" data-v="greedy" aria-pressed="false">탐욕 추격</button>
+          <button type="button" data-v="assign" aria-pressed="false">배정 규칙</button>
+        </div>
+      </section>
+
+      <section class="group">
+        <div class="label">시뮬레이터</div>
+        <div class="seg" role="group" aria-label="시뮬레이터" id="engineSeg">
+          <button type="button" data-v="sumo" aria-pressed="true">SUMO</button>
+          <button type="button" data-v="point" aria-pressed="false">빠른 시뮬레이터</button>
+        </div>
+        <div id="sumoOpts" class="sub-opts">
+          <label class="check" for="carry"><input type="checkbox" id="carry" />순찰차마다 바리케이드 1개 (경찰이 판단해 설치)</label>
+          <div class="seg" role="group" aria-label="도로 조건" id="profileSeg">
+            <button type="button" data-v="ideal" aria-pressed="true">신호 없음</button>
+            <button type="button" data-v="real" aria-pressed="false">실제 도로</button>
+          </div>
+          <div id="realOpts" class="sub-opts" hidden>
+            <div class="seg three" role="group" aria-label="일반 교통" id="trafficSeg">
+              <button type="button" data-v="" aria-pressed="true">교통 없음</button>
+              <button type="button" data-v="2" aria-pressed="false">보통</button>
+              <button type="button" data-v="0.7" aria-pressed="false">혼잡</button>
+            </div>
+            <label class="check" for="ignoreRed"><input type="checkbox" id="ignoreRed" />긴급주행 (경찰·도주차 신호 무시)</label>
+          </div>
+        </div>
+      </section>
+
+      <button type="button" class="run" id="run">추격 시작</button>
+      <button type="button" class="btn replay" id="fallback">녹화된 SUMO 시연 보기</button>
+      <p class="hint">미리 계산해 둔 대전 사례예요. 지금 배치와 설정은 적용되지 않아요.</p>
+
+      <details class="server">
+        <summary>서버 주소</summary>
+        <div class="row"><input id="apiBase" type="url" placeholder="https://your-sumo-api.example.com" aria-label="SUMO API HTTPS 주소" /><button type="button" class="btn" id="apiSave">저장</button></div>
+        <input id="apiToken" type="password" autocomplete="off" placeholder="접근 토큰 (선택, 이 탭 세션에만 저장)" aria-label="SUMO API 접근 토큰" />
+        <p class="hint" id="apiHint"></p>
+      </details>
+    </aside>
+
+    <main class="map-wrap">
+      <div id="map" aria-label="도로 지도"></div>
+      <div class="legend">
+        <span><i class="dot police"></i>경찰차</span>
+        <span><i class="dot fugitive"></i>도주차</span>
+        <span><i class="bar region"></i>도주 가능 도로</span>
+        <span><i class="sq"></i>차단 지점</span>
+        <span><i class="dot exit"></i>열린 출구</span>
+        <span id="barLegend" hidden><i class="barr-key"></i>바리케이드 <i class="barr-key seen"></i>도주차가 발견</span>
+        <span id="bgLegend" hidden><i class="dot bg"></i>일반 차량</span>
+      </div>
+    </main>
+
+    <aside class="panel right" aria-label="진행 상황">
+      <section class="group">
+        <div class="clockrow">
+          <div><div class="label">경과</div><div class="big" id="clock">0초</div></div>
+          <div><div class="label">열린 출구</div><div class="big" id="openExits">–</div></div>
+        </div>
+        <canvas id="spark" width="560" height="110" aria-label="시간에 따른 열린 출구 수"></canvas>
+      </section>
+      <section class="group">
+        <div class="row controls">
+          <button type="button" class="btn" id="play" aria-label="재생/정지">❚❚</button>
+          <button type="button" class="btn" id="back" aria-label="1초 뒤로">◀</button>
+          <button type="button" class="btn" id="fwd" aria-label="1초 앞으로">▶</button>
+          <select id="speed" aria-label="재생 속도">
+            <option value="1">1×</option><option value="2">2×</option><option value="4" selected>4×</option><option value="8">8×</option>
+          </select>
+        </div>
+        <input type="range" id="scrub" min="0" max="0" value="0" step="0.01" aria-label="시간 이동" />
+      </section>
+      <section class="group">
+        <div class="label">경찰별 임무</div>
+        <table class="officers"><tbody id="officers"><tr><td class="empty">추격을 시작하면 여기에 보여요.</td></tr></tbody></table>
+      </section>
+      <section class="group">
+        <div class="label">실행 기록</div>
+        <ol class="history" id="history"><li class="empty">아직 실행한 기록이 없어요.</li></ol>
+      </section>
+    </aside>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

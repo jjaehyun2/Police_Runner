@@ -1,0 +1,72 @@
+<title>추격 리플레이 뷰어</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* layout: dispatch-console — map canvas dominates, a narrow log column of officers & controls beside it (stacks on phones) */
+:root {
+  --bg: #eef1f4; --panel: #ffffff; --ink: #18212b; --muted: #5c6a78; --line: #d5dbe2;
+  --road: #b9c2cc; --road-edge: #e3e7ec; --map: #f7f9fb;
+  --police: #1f5fbf; --police-soft: #1f5fbf33; --fugitive: #d6402b; --fugitive-soft: #d6402b30;
+  --route-open: #c98a00; --route-closed: #8a96a3; --exit: #7a3fb8; --ok: #1d7f4e; --bad: #c0392b;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141a; --panel: #161d25; --ink: #e4e9ef; --muted: #93a0ae; --line: #2a3440;
+  --road: #4a5664; --road-edge: #222b35; --map: #121920;
+  --police: #5b9bff; --police-soft: #5b9bff38; --fugitive: #ff6a52; --fugitive-soft: #ff6a5233;
+  --route-open: #f0b429; --route-closed: #6c7886; --exit: #b583f0; --ok: #46c487; --bad: #ff7a6b; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f141a; --panel: #161d25; --ink: #e4e9ef; --muted: #93a0ae; --line: #2a3440;
+  --road: #4a5664; --road-edge: #222b35; --map: #121920;
+  --police: #5b9bff; --police-soft: #5b9bff38; --fugitive: #ff6a52; --fugitive-soft: #ff6a5233;
+  --route-open: #f0b429; --route-closed: #6c7886; --exit: #b583f0; --ok: #46c487; --bad: #ff7a6b; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.5; padding-inline: 16px; padding-block: 16px 24px }
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 14px }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px }
+h1 { font-size: 20px; font-weight: 700; margin: 0; letter-spacing: -0.01em; text-wrap: balance }
+header p { margin: 0; color: var(--muted); max-width: 70ch }
+.episodes { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px }
+.ep { text-align: left; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; display: grid; gap: 3px }
+.ep:hover { border-color: var(--muted) }
+.ep[aria-pressed="true"] { border-color: var(--police); box-shadow: inset 0 0 0 1px var(--police) }
+.ep .t { font-weight: 600; font-size: 13px }
+.ep .s { font-family: var(--mono); font-size: 11.5px; color: var(--muted) }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start }
+@media (max-width: 860px) { .main { grid-template-columns: minmax(0, 1fr) } }
+.stage { background: var(--map); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; position: relative }
+canvas { display: block; width: 100%; aspect-ratio: 4 / 3; max-width: 100%; touch-action: none; cursor: grab }
+canvas:active { cursor: grabbing }
+.hud { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none }
+.chip { font-family: var(--mono); font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px }
+.chip.ok { color: var(--ok); border-color: var(--ok) } .chip.bad { color: var(--bad); border-color: var(--bad) }
+.fit { position: absolute; right: 10px; top: 10px }
+.side { display: grid; gap: 12px; min-width: 0 }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; min-width: 0 }
+.label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600 }
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
+.seg button { font: inherit; font-size: 13px; padding: 7px 4px; border: 0; background: transparent; color: var(--ink); cursor: pointer }
+.seg button[aria-pressed="true"] { background: var(--police); color: #fff; font-weight: 600 }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.btn { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); cursor: pointer }
+.btn:hover { border-color: var(--muted) }
+.btn.primary { background: var(--ink); color: var(--panel); border-color: var(--ink); min-width: 74px }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--police); outline-offset: 2px }
+input[type=range] { width: 100%; accent-color: var(--police) }
+select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink) }
+.clock { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px }
+table { width: 100%; border-collapse: collapse; font-size: 13px }
+td { padding: 4px 2px; border-top: 1px solid var(--line); vertical-align: middle }
+td.n { font-family: var(--mono); width: 34px }
+.dot { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--police); color: #fff; font-size: 11px; font-family: var(--mono) }
+.role { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line) }
+.role.pursue { color: var(--fugitive); border-color: var(--fugitive) }
+.role.guard { color: var(--route-open); border-color: var(--route-open) }
+td.d { font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums }
+.legend { display: grid; gap: 6px; font-size: 12.5px; color: var(--muted) }
+.legend div { display: flex; gap: 8px; align-items: center }
+.sw { width: 22px; height: 0; border-top: 3px solid; flex: none }
+.note { font-size: 12.5px; color: var(--muted); margin: 0 }
+</style>
