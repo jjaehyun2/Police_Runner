@@ -1,5 +1,7 @@
 # Police Runner
 
+> **2026-10 최신 작업(GA 역할 정책, SUMO 대시보드, 바리케이드)은 [`AGENT_GUIDE.md`](AGENT_GUIDE.md)부터 읽으세요.** 아래 내용은 초기 MAPPO 단계의 설명입니다. 배포 사이트: https://express-krypton-ciz5965.vercel.app
+
 > 도주 차량을 **여러 순찰차가 협력해서 포위·검거**하는 다중 에이전트 강화학습 연구 저장소.
 > 실제 대전 도로망을 SUMO 교통 시뮬레이터에 올려, 배경 교통 속에서 추격 정책을 검증한다.
 

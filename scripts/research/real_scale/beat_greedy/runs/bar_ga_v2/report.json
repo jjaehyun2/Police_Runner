@@ -1,0 +1,478 @@
+{
+ "run": "/workspace/cluster/scripts/research/real_scale/beat_greedy/runs/bar_ga_v2",
+ "time": "2026-10-13 11:51",
+ "meta": {
+  "origin": "m-role(g6_15.pt)"
+ },
+ "validation": {
+  "daejeon_validation": {
+   "never": {
+    "SR": 0.97,
+    "capture_s": 31.1,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 582,
+     "escape": 18,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.85,
+     "4": 1.0,
+     "5": 1.0,
+     "6": 1.0,
+     "8": 1.0
+    }
+   },
+   "role": {
+    "SR": 1.0,
+    "capture_s": 30.3,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 600,
+     "escape": 0,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 1.0,
+     "4": 1.0,
+     "5": 1.0,
+     "6": 1.0,
+     "8": 1.0
+    },
+    "paired_wins": 18,
+    "paired_losses": 0
+   },
+   "learned": {
+    "SR": 1.0,
+    "capture_s": 30.3,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 600,
+     "escape": 0,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 1.0,
+     "4": 1.0,
+     "5": 1.0,
+     "6": 1.0,
+     "8": 1.0
+    },
+    "paired_wins": 18,
+    "paired_losses": 0
+   }
+  },
+  "incheon_validation": {
+   "never": {
+    "SR": 0.9233,
+    "capture_s": 42.3,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 277,
+     "escape": 23,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.833,
+     "4": 0.967,
+     "5": 0.917,
+     "6": 0.933,
+     "8": 0.967
+    }
+   },
+   "role": {
+    "SR": 0.9267,
+    "capture_s": 44.0,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 278,
+     "escape": 22,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.85,
+     "4": 0.967,
+     "5": 0.917,
+     "6": 0.933,
+     "8": 0.967
+    },
+    "paired_wins": 1,
+    "paired_losses": 0
+   },
+   "learned": {
+    "SR": 0.9267,
+    "capture_s": 44.0,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 278,
+     "escape": 22,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.85,
+     "4": 0.967,
+     "5": 0.917,
+     "6": 0.933,
+     "8": 0.967
+    },
+    "paired_wins": 1,
+    "paired_losses": 0
+   }
+  },
+  "suwon2_validation": {
+   "never": {
+    "SR": 0.8533,
+    "capture_s": 27.4,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 256,
+     "escape": 44,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.7,
+     "4": 0.833,
+     "5": 0.9,
+     "6": 0.933,
+     "8": 0.9
+    }
+   },
+   "role": {
+    "SR": 0.87,
+    "capture_s": 27.3,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 261,
+     "escape": 39,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.717,
+     "4": 0.817,
+     "5": 0.917,
+     "6": 0.95,
+     "8": 0.95
+    },
+    "paired_wins": 6,
+    "paired_losses": 1
+   },
+   "learned": {
+    "SR": 0.87,
+    "capture_s": 27.3,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 261,
+     "escape": 39,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.717,
+     "4": 0.817,
+     "5": 0.917,
+     "6": 0.95,
+     "8": 0.95
+    },
+    "paired_wins": 6,
+    "paired_losses": 1
+   }
+  }
+ },
+ "test": {
+  "daejeon_test": {
+   "never": {
+    "SR": 0.8933,
+    "capture_s": 46.6,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 536,
+     "escape": 64,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.767,
+     "4": 0.892,
+     "5": 0.925,
+     "6": 0.908,
+     "8": 0.975
+    }
+   },
+   "learned": {
+    "SR": 0.8833,
+    "capture_s": 47.1,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 530,
+     "escape": 70,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.767,
+     "4": 0.867,
+     "5": 0.933,
+     "6": 0.875,
+     "8": 0.975
+    },
+    "paired_wins": 10,
+    "paired_losses": 16
+   }
+  },
+  "seoul_zero_shot": {
+   "never": {
+    "SR": 0.7075,
+    "capture_s": 53.9,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 283,
+     "escape": 116,
+     "timeout": 1
+    },
+    "by_n": {
+     "3": 0.525,
+     "4": 0.588,
+     "5": 0.775,
+     "6": 0.838,
+     "8": 0.812
+    }
+   },
+   "learned": {
+    "SR": 0.71,
+    "capture_s": 54.8,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 284,
+     "escape": 116,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.525,
+     "4": 0.575,
+     "5": 0.8,
+     "6": 0.85,
+     "8": 0.8
+    },
+    "paired_wins": 5,
+    "paired_losses": 4
+   }
+  },
+  "busan_zero_shot": {
+   "never": {
+    "SR": 0.65,
+    "capture_s": 66.9,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 260,
+     "escape": 140,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.525,
+     "4": 0.575,
+     "5": 0.725,
+     "6": 0.75,
+     "8": 0.675
+    }
+   },
+   "learned": {
+    "SR": 0.465,
+    "capture_s": 50.7,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 186,
+     "escape": 214,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.438,
+     "4": 0.325,
+     "5": 0.4,
+     "6": 0.625,
+     "8": 0.537
+    },
+    "paired_wins": 6,
+    "paired_losses": 80
+   }
+  }
+ },
+ "sumo": {
+  "3": {
+   "never": {
+    "SR": 0.8833,
+    "capture_s": 41.1,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 53,
+     "escape": 7,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.883
+    }
+   },
+   "role": {
+    "SR": 0.8333,
+    "capture_s": 44.4,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 50,
+     "escape": 10,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.833
+    },
+    "paired_wins": 2,
+    "paired_losses": 5
+   },
+   "rules": {
+    "SR": 0.85,
+    "capture_s": 52.1,
+    "barricades": 0.48,
+    "outcomes": {
+     "success": 51,
+     "escape": 9,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.85
+    },
+    "paired_wins": 2,
+    "paired_losses": 4
+   },
+   "learned": {
+    "SR": 0.8333,
+    "capture_s": 44.4,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 50,
+     "escape": 10,
+     "timeout": 0
+    },
+    "by_n": {
+     "3": 0.833
+    },
+    "paired_wins": 2,
+    "paired_losses": 5
+   }
+  },
+  "4": {
+   "never": {
+    "SR": 0.88,
+    "capture_s": 43.6,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 88,
+     "escape": 12,
+     "timeout": 0
+    },
+    "by_n": {
+     "4": 0.88
+    }
+   },
+   "role": {
+    "SR": 0.89,
+    "capture_s": 44.5,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 89,
+     "escape": 11,
+     "timeout": 0
+    },
+    "by_n": {
+     "4": 0.89
+    },
+    "paired_wins": 3,
+    "paired_losses": 2
+   },
+   "rules": {
+    "SR": 0.88,
+    "capture_s": 40.8,
+    "barricades": 0.72,
+    "outcomes": {
+     "success": 88,
+     "escape": 11,
+     "timeout": 1
+    },
+    "by_n": {
+     "4": 0.88
+    },
+    "paired_wins": 4,
+    "paired_losses": 4
+   },
+   "learned": {
+    "SR": 0.89,
+    "capture_s": 44.5,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 89,
+     "escape": 11,
+     "timeout": 0
+    },
+    "by_n": {
+     "4": 0.89
+    },
+    "paired_wins": 3,
+    "paired_losses": 2
+   }
+  },
+  "6": {
+   "never": {
+    "SR": 1.0,
+    "capture_s": 23.3,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 60,
+     "escape": 0,
+     "timeout": 0
+    },
+    "by_n": {
+     "6": 1.0
+    }
+   },
+   "role": {
+    "SR": 1.0,
+    "capture_s": 23.8,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 60,
+     "escape": 0,
+     "timeout": 0
+    },
+    "by_n": {
+     "6": 1.0
+    },
+    "paired_wins": 0,
+    "paired_losses": 0
+   },
+   "rules": {
+    "SR": 0.9667,
+    "capture_s": 28.5,
+    "barricades": 1.18,
+    "outcomes": {
+     "success": 58,
+     "escape": 2,
+     "timeout": 0
+    },
+    "by_n": {
+     "6": 0.967
+    },
+    "paired_wins": 0,
+    "paired_losses": 2
+   },
+   "learned": {
+    "SR": 1.0,
+    "capture_s": 23.8,
+    "barricades": 0.0,
+    "outcomes": {
+     "success": 60,
+     "escape": 0,
+     "timeout": 0
+    },
+    "by_n": {
+     "6": 1.0
+    },
+    "paired_wins": 0,
+    "paired_losses": 0
+   }
+  }
+ }
+}
