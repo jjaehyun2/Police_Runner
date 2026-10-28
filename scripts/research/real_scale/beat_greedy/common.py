@@ -182,8 +182,9 @@ def _build(spec: str, network: ModelNetwork):
         return {"team_policy": EncirclementPolice(
             network, graph=_Graph(network), fugitive_speed_mps=FUGITIVE_SPEED_MPS, police_speed_mps=POLICE_SPEED_MPS,
         )}
-    if spec.startswith("rmacro:"):                         # scale-free (relative) features
-        import macro
+    if spec.startswith(("rmacro:", "emacro:", "tmacro:", "cmacro:")):  # relative features; metric: e straight line,
+        import macro                                                       # t travel time, c traffic-aware travel time
+        metric = {"e": "euclid", "t": "travel", "c": "traffic"}.get(spec[0], "road")
         arg = spec[7:]
         if arg.startswith("init") and arg[4:].isdigit():
             torch.manual_seed(int(arg[4:]))
@@ -198,7 +199,8 @@ def _build(spec: str, network: ModelNetwork):
             scorer = macro.CandidateScorer(tuple(payload["hidden"]), kind=payload.get("scorer_kind", "onehot"))
             scorer.load_state_dict(payload["scorer"])
         return {"team_policy": macro.MacroTeamPolicy(network, scorer, vp=POLICE_SPEED_MPS, vf=FUGITIVE_SPEED_MPS,
-                                                     fixed_rule="assign" if arg == "assign" else None, relative=True)}
+                                                     fixed_rule="assign" if arg == "assign" else None, relative=True,
+                                                     metric=metric)}
     if spec.startswith("macro:"):
         import macro
         arg = spec[6:]
@@ -230,6 +232,9 @@ def _build(spec: str, network: ModelNetwork):
     if spec.startswith("rule:"):
         import rules
         return {"team_policy": rules.build(spec[5:], network)}
+    if spec.startswith("pep:"):                            # PEPCRL-MVP port (pepcrl.py)
+        import pepcrl
+        return {"team_policy": pepcrl.load_policy(spec[4:], network)}
     if spec.startswith("ckpt:"):
         policy, payload = load_learned(spec[5:])
         policy.actor.eval() if hasattr(policy, "actor") else None

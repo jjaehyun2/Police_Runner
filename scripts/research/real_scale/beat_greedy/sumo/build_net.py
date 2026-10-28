@@ -48,7 +48,10 @@ def _kph(seg) -> float:
                 return float(str(raw).split()[0])
             except ValueError:
                 pass
-    cls = str(attrs.get("road_class", "residential")).split("_")[0]
+    full = str(attrs.get("road_class", "residential"))
+    cls = full.split("_")[0]
+    if os.environ.get("RT_CLASS_FIX", "0") == "1" and full in DEFAULT_KPH:   # see roadtime.CLASS_FIX
+        cls = full
     return float(DEFAULT_KPH.get(cls, 30))
 
 
@@ -80,6 +83,8 @@ def build(map_name: str, profile: str = "ideal") -> Path:
     with open(f"{stem}.edg.xml", "w") as f:
         f.write("<edges>\n")
         for s in net.segments:
+            if s.start_id == s.end_id:                       # netconvert drops self-loop edges; skip them here too
+                continue
             shape = " ".join(f"{x:.3f},{y:.3f}" for x, y in s.geometry_xy)
             if profile == "ideal":
                 speed, lanes = 50.0, 1
@@ -92,17 +97,25 @@ def build(map_name: str, profile: str = "ideal") -> Path:
         # every turn the point-mass simulator allows (incl. U-turns) is a SUMO connection; in the
         # "real" profile only the edge pair is fixed and netconvert assigns the lanes
         incoming: dict[int, list[int]] = {}
+        loops = {s.id for s in net.segments if s.start_id == s.end_id}
         for s in net.segments:
-            incoming.setdefault(s.end_id, []).append(s.id)
+            if s.id not in loops:
+                incoming.setdefault(s.end_id, []).append(s.id)
         with open(f"{stem}.con.xml", "w") as f:
             f.write("<connections>\n")
             for s in net.segments:
+                if s.id in loops:
+                    continue
                 for sid in incoming.get(s.start_id, []):
                     lanes = ' fromLane="0" toLane="0"' if profile == "ideal" else ""
                     f.write(f'  <connection from="e{sid}" to="e{s.id}"{lanes}/>\n')
             f.write("</connections>\n")
+    # SE_OPPOSITES=1 (real profile): opposite-direction lanes are linked so vehicles may overtake slow traffic on
+    # two-way single-lane roads; written to <map>_<profile>_ovt.net.xml, leaving the default net untouched
+    ovt = os.environ.get("SE_OPPOSITES") == "1" and profile != "ideal"
+    out_net = f"{stem}_ovt.net.xml" if ovt else f"{stem}.net.xml"
     args = [sumo_bin("netconvert"), "--node-files", f"{stem}.nod.xml", "--edge-files", f"{stem}.edg.xml",
-            "--output-file", f"{stem}.net.xml", "--offset.disable-normalization", "true",
+            "--output-file", out_net, "--offset.disable-normalization", "true",
             "--geometry.remove", "false", "--no-warnings", "true"]
     if profile == "ideal":
         args += ["--connection-files", f"{stem}.con.xml", "--junctions.limit-turn-speed", "-1", "--tls.discard-loaded", "true",
@@ -110,8 +123,10 @@ def build(map_name: str, profile: str = "ideal") -> Path:
     else:
         args += ["--connection-files", f"{stem}.con.xml", "--tls.guess", "true", "--tls.guess.threshold", "40",
                  "--tls.join", "true", "--junctions.join", "false"]
+        if ovt:
+            args += ["--opposites.guess", "true", "--opposites.guess.fix-lengths", "true"]
     subprocess.run(args, check=True)
-    return Path(f"{stem}.net.xml")
+    return Path(out_net)
 
 
 def traffic(map_name: str, profile: str, period_s: float, end_s: float = 1200.0, seed: int = 0) -> Path:

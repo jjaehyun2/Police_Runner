@@ -12,6 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 VF = float(os.environ.get("ME_VF", "16"))
 os.environ.setdefault("BG_FUGITIVE_SPEED", str(VF))     # single-fugitive specs read it via common
+VP = float(os.environ.get("ME_VP", "16"))               # officers' top speed; the policies' belief follows it
+os.environ.setdefault("BG_POLICE_SPEED", str(VP))
 import numpy as np
 import common, multi_policies, multi_sim
 from pursuit_evasion_rl.research.policies import baselines
@@ -21,13 +23,15 @@ _W = {}
 
 
 PLACEMENT = os.environ.get("ME_PLACEMENT", "random")     # random | ring (fugitive in the middle, officers surrounding)
+RING = tuple(float(x) for x in os.environ.get("ME_RING", "400,700").split(","))   # ring road distance (m)
 
 
 def make_case(net, tag, idx, n_p, n_f):
     if PLACEMENT == "ring":
         assert n_f == 1, "ring placement is single-fugitive"
-        return multi_sim.make_ring_case(net, tag, idx, n_p, vf=VF, max_steps=MAX_STEPS)
-    return multi_sim.make_multi_case(net, tag, idx, n_p, n_f, vf=VF, max_steps=MAX_STEPS)
+        return multi_sim.make_ring_case(net, tag, idx, n_p, vp=VP, vf=VF, max_steps=MAX_STEPS, ring_min_m=RING[0],
+                                        ring_max_m=RING[1])
+    return multi_sim.make_multi_case(net, tag, idx, n_p, n_f, vp=VP, vf=VF, max_steps=MAX_STEPS)
 
 
 def _init(net_name):

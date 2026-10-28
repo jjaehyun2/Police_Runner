@@ -1,5 +1,10 @@
 # 인계 문서: 경찰 추격 정책 + SUMO 실도로 시뮬레이터
 
+> **2026-10-28 최신 작업:** 이 문서는 10월 12일 기준입니다. 현재 SUMO 정책 연결·도주차
+> 경로 버그 수정과 큰 지도 재검증 결과는
+> `scripts/research/real_scale/beat_greedy/HANDOFF_CODEX_2026-10-28.md` 및
+> `scripts/research/real_scale/beat_greedy/REPORT_2026-10-28.md`의 §13을 먼저 확인하세요.
+
 작성: 2026-10-12, Claude Code 세션. Codex가 이어받아 바로 작업할 수 있도록 현재 상태, 실행 방법, 남은 일을 정리했습니다.
 
 ---

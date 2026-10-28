@@ -1,0 +1,31 @@
+schema_version: '1.0'
+map_id: busan-gamcheon-dev-v1
+city: Busan
+role: validation
+query: bounded OSM API 0.6 /map download over the recorded bbox, OSMnx drive filter
+  (Overpass unreachable)
+query_geometry:
+  type: Polygon
+  coordinates:
+  - - - 128.99
+      - 35.08
+    - - 129.02
+      - 35.08
+    - - 129.02
+      - 35.11
+    - - 128.99
+      - 35.11
+    - - 128.99
+      - 35.08
+source: OpenStreetMap contributors via OSM API 0.6 + OSMnx
+service: OSM API 0.6
+service_version: cgimap (OSM API 0.6)
+acquired_at_utc: '2026-10-27T15:55:47.796576+00:00'
+preprocessing_version: decision-chain-v1+colocated-virtual-chain-v1
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/609001d7e0da4f04ddf04da7441254efe143e392a7f05c7f670c583ace571cba/raw_osm.json
+network_path: cache/research/maps/609001d7e0da4f04ddf04da7441254efe143e392a7f05c7f670c583ace571cba/model_network.json
+raw_file_hash: c1052fda3ea7908a22d65ad28a6c1677b5314f890fcb15a482cc09c83b5978c3
+network_file_hash: 5c82ff0904dba779ecd48d68d24e1c268c69d51e7af59380eeb48c49ceb1b252
+network_content_hash: 5c82ff0904dba779ecd48d68d24e1c268c69d51e7af59380eeb48c49ceb1b252
+polygon_content_hash: 609001d7e0da4f04ddf04da7441254efe143e392a7f05c7f670c583ace571cba
