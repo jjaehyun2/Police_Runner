@@ -1,0 +1,31 @@
+schema_version: '1.0'
+map_id: tongyeong-dev-v1
+city: Tongyeong
+role: validation
+query: bounded OSM API 0.6 /map download over the recorded bbox, OSMnx drive filter
+  (Overpass unreachable)
+query_geometry:
+  type: Polygon
+  coordinates:
+  - - - 128.41
+      - 34.83
+    - - 128.44
+      - 34.83
+    - - 128.44
+      - 34.86
+    - - 128.41
+      - 34.86
+    - - 128.41
+      - 34.83
+source: OpenStreetMap contributors via OSM API 0.6 + OSMnx
+service: OSM API 0.6
+service_version: cgimap (OSM API 0.6)
+acquired_at_utc: '2026-10-27T15:56:23.647639+00:00'
+preprocessing_version: decision-chain-v1+colocated-virtual-chain-v1
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/d2a199dee7d6d82db54e23254a5d9b22f972a4fc9ad4d991624e48c518262874/raw_osm.json
+network_path: cache/research/maps/d2a199dee7d6d82db54e23254a5d9b22f972a4fc9ad4d991624e48c518262874/model_network.json
+raw_file_hash: 280adc6b1cbb07bcb2056b996cac8febdbd62c0eadb5f720c602076413cf1271
+network_file_hash: 37e562c96b873aa5dced72326aa483a6a1390bdadf20101bc200640d45d355d4
+network_content_hash: 37e562c96b873aa5dced72326aa483a6a1390bdadf20101bc200640d45d355d4
+polygon_content_hash: d2a199dee7d6d82db54e23254a5d9b22f972a4fc9ad4d991624e48c518262874

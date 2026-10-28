@@ -24,6 +24,7 @@ softmax over the scores is the role distribution. It implements the
 from __future__ import annotations
 
 import math
+import os
 from typing import Sequence
 
 import numpy as np
@@ -43,6 +44,11 @@ DECISION_PERIOD = 6
 CLIP_M = 2000.0
 REVERSE_PENALTY_M = 300.0
 _INF = float("inf")
+# stall breaker: a fugitive that has stayed within STALL_M of one spot for stall_s seconds while every
+# officer holds an interception node is waiting out the cordon; the road-nearest officer closes in
+STALL_M = 5.0
+# MACRO_MIN_PURSUE=1: always keep one direct pursuer (encirclement-style pressure), whatever the scorer picks
+MIN_PURSUE = os.environ.get("MACRO_MIN_PURSUE", "0") == "1"
 
 
 class CandidateScorer(nn.Module):
@@ -95,13 +101,33 @@ def _path(g, src: int, dst: int) -> list[int]:
     return path
 
 
+class _Euclid:
+    """Straight-line distance from xy to every node the road graph reaches (keys of ``road``); the
+    distance metric of PEPCRL-MVP (env/utils.calculate_dis), for the metric ablation."""
+
+    def __init__(self, g, xy, road) -> None:
+        self.g, self.xy, self.road = g, xy, road
+
+    def __contains__(self, n) -> bool:
+        return n in self.road
+
+    def __getitem__(self, n) -> float:
+        if n not in self.road:
+            raise KeyError(n)
+        return math.dist(self.xy, self.g.pos[n])
+
+    def get(self, n, default=None):
+        return self[n] if n in self.road else default
+
+
 class MacroTeamPolicy:
     profile = "macro_role_policy"
     experimental = False
 
     def __init__(self, network, scorer: CandidateScorer | None, *, vp: float, vf: float,
                  mode: str = "argmax", rng: np.random.Generator | None = None,
-                 fixed_rule: str | None = None, relative: bool = False) -> None:
+                 fixed_rule: str | None = None, relative: bool = False, metric: str = "road",
+                 stall_s: float | None = None) -> None:
         self.network = network
         self.g = graph_for(network)
         self.boundary = boundary_distance(network)
@@ -115,12 +141,33 @@ class MacroTeamPolicy:
         # relative: everything is measured against S = the fugitive's road distance to its nearest
         # exit, calibrated so a typical Daejeon case (S ~ 335 m, vf 16) reproduces the absolute scales.
         self.relative = relative
+        # distance metric for every timing estimate (arrival times, margins, ranks); movement always
+        # follows the roads. "euclid": straight-line distance, as PEPCRL-MVP (metric ablation)
+        # "travel": fastest driving time with speed limits and turn losses (roadtime.py), as equivalent metres
+        # "traffic": v2, travel time through the live background traffic (roadtime.TrafficGraph; officers and
+        # fugitive each with their own signal compliance), fed by the simulator via set_traffic
+        assert metric in ("road", "euclid", "travel", "traffic"), metric
+        self.metric = metric
+        self.gf = self.g                         # graph for the fugitive's routes and times (its own top speed)
+        if metric == "travel":
+            import roadtime
+            exits = [s.start_id for s in network.segments if s.crosses_boundary]
+            self.g, self.gf = roadtime.travel_graph(network, vp), roadtime.travel_graph(network, vf)
+            self.boundary = roadtime.boundary_time(network, vf, exits)
+        self.wants_traffic = metric == "traffic"
+        if metric == "traffic":
+            import roadtime
+            self.g = roadtime.TrafficGraph(network, vp)
+            self.gf = roadtime.TrafficGraph(network, vf)
+            self._road_info = None
         self._D, self._T, self._M, self._H = CLIP_M, 60.0, 30.0, EXIT_HORIZON_M
         self.n = 0                               # team size, set from the first observation
         self._size(POLICE_COUNT)
         self._prev: dict[int, int] = {}
         self.closed: set[int] = set()            # barricaded segments (set by the simulator)
         self._fug_hist: list[tuple[float, float]] = []
+        self.stall_s = float(os.environ.get("MACRO_STALL_S", "0")) if stall_s is None else stall_s  # 0 = off
+        self._still: tuple | None = None         # (anchor xy, step it settled there)
         self.log: list[dict] = []                # decisions (for training)
 
     def _size(self, n: int) -> None:
@@ -133,13 +180,21 @@ class MacroTeamPolicy:
     # -- candidate construction ------------------------------------------------
     def _candidates(self, police, fugitive):
         g = self.g
-        freach, foff = _reach(g, fugitive)
-        f_from = g.dist_from(freach)
+        freach, foff = self._reach(fugitive, self.gf)
+        f_from = self.gf.dist_from(freach)
+        if self.metric == "euclid":
+            f_from, foff = _Euclid(g, placement_position(self.network, fugitive), f_from), 0.0
         if self.relative:
-            S = max(foff + self.boundary.get(freach, 300.0), 150.0)
+            if self.metric in ("euclid", "traffic"):
+                S = max(foff + min((f_from[e] for e in self.exits if e in f_from), default=300.0), 150.0)
+            else:
+                S = max(foff + self.boundary.get(freach, 300.0), 150.0)
             self._D, self._T, self._M, self._H = 6.0 * S, 3.0 * S / self.vf, 1.5 * S / self.vf, 4.5 * S
-        officer = [_reach(g, p) for p in police]
+        officer = [self._reach(p) for p in police]
         officer_from = [g.dist_from(n) for n, _ in officer]
+        if self.metric == "euclid":
+            officer_from = [_Euclid(g, placement_position(self.network, p), d) for p, d in zip(police, officer_from)]
+            officer = [(n, 0.0) for n, _ in officer]
         rows = []
         for e in self.exits:
             if self.closed and all(o in self.closed for o in self.network_out_crossing(e)):
@@ -155,7 +210,7 @@ class MacroTeamPolicy:
         # dedupe exits whose routes share the same first 2 nodes (same corridor)
         chosen, seen = [], set()
         for closed, tf_exit, e in rows:
-            path = _path(g, freach, e)
+            path = _path(self.gf, freach, e)
             key = tuple(path[1:3])
             if key in seen and len(path) > 2:
                 continue
@@ -164,6 +219,24 @@ class MacroTeamPolicy:
             if len(chosen) >= N_CANDIDATES - 1:
                 break
         return freach, foff, f_from, officer, officer_from, chosen
+
+    def _reach(self, pl, g=None) -> tuple[int, float]:
+        g = g or self.g
+        n, off = _reach(g, pl)
+        if self.metric in ("travel", "traffic") and pl.segment_id is not None:
+            seg = g.seg[pl.segment_id]
+            off *= g.cost[pl.segment_id] / max(float(seg.length_m), 1e-6)
+        return n, off
+
+    def set_traffic(self, snap: dict, *, ignore_red: tuple[bool, bool], road_info) -> None:
+        """Live background traffic per segment (vehicles, halting, mean speed) and the static lanes /
+        signals of the map; called by the simulator before each recommend()."""
+        if self._road_info is None:
+            self._road_info = road_info
+            self.g.lanes, self.g.signals = road_info
+            self.gf.lanes, self.gf.signals = road_info
+        self.g.set_traffic(snap, obeys_red=not ignore_red[0])
+        self.gf.set_traffic(snap, obeys_red=not ignore_red[1])
 
     def network_out_crossing(self, e: int) -> list[int]:
         if not hasattr(self, "_crossing"):
@@ -306,8 +379,12 @@ class MacroTeamPolicy:
         cands = self._candidates(police, fugitive)
         to_f = self.g.dist_to(cands[0])
         road = []
-        for n, off in cands[3]:
+        for k, (n, off) in enumerate(cands[3]):
             d = to_f.get(n)
+            if self.metric == "euclid":
+                d = None if d is None else math.dist(placement_position(self.network, police[k]),
+                                                     placement_position(self.network, fugitive))
+                off = 0.0
             road.append(_INF if d is None else off + d)
         order = sorted(range(self.n), key=lambda k: road[k])
         rank = {k: r for r, k in enumerate(order)}
@@ -324,6 +401,16 @@ class MacroTeamPolicy:
             self.roles[k] = a
             self.targets[k] = intercepts[a]
             self.role_exit[k] = cands[5][a - 1][2] if a > 0 else None
+        if (self._stalled(fxy, step) or MIN_PURSUE) and all(r != 0 for r in self.roles):
+            k = order[0]
+            self.roles[k], self.targets[k], self.role_exit[k] = 0, intercepts[0], None
+
+    def _stalled(self, fxy, step) -> bool:
+        if not self.stall_s:
+            return False
+        if self._still is None or step < self._still[1] or math.dist(fxy, self._still[0]) > STALL_M:
+            self._still = (fxy, step)
+        return step - self._still[1] >= self.stall_s
 
     def recommend(self, *, police, fugitive, step, max_steps, incoming_headings=None):
         g = self.g

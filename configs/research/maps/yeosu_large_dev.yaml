@@ -1,0 +1,31 @@
+schema_version: '1.0'
+map_id: yeosu-large-dev-v1
+city: yeosu
+role: validation
+query: bounded OSM API 0.6 /map download over the recorded bbox, OSMnx drive filter
+  (Overpass unreachable)
+query_geometry:
+  type: Polygon
+  coordinates:
+  - - - 127.7
+      - 34.73
+    - - 127.76
+      - 34.73
+    - - 127.76
+      - 34.79
+    - - 127.7
+      - 34.79
+    - - 127.7
+      - 34.73
+source: OpenStreetMap contributors via OSM API 0.6 + OSMnx
+service: OSM API 0.6
+service_version: cgimap (OSM API 0.6)
+acquired_at_utc: '2026-10-28T03:13:55.538232+00:00'
+preprocessing_version: decision-chain-v1+colocated-virtual-chain-v1
+metric_crs: EPSG:32652
+raw_path: cache/research/maps/826bfebbe38d20ed71de9861890a1daca76a6f09a96e38f5055c30140a3a1326/raw_osm.json
+network_path: cache/research/maps/826bfebbe38d20ed71de9861890a1daca76a6f09a96e38f5055c30140a3a1326/model_network.json
+raw_file_hash: 6ab8a4b02fd9c04ffc57cab5b969757a9c63914b4eabf021572b3af348c417fb
+network_file_hash: 64a23efa047037e61769f9ee1cc8a4ed60001e56041a812b522434ce8062aace
+network_content_hash: 64a23efa047037e61769f9ee1cc8a4ed60001e56041a812b522434ce8062aace
+polygon_content_hash: 826bfebbe38d20ed71de9861890a1daca76a6f09a96e38f5055c30140a3a1326
