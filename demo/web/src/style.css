@@ -155,7 +155,10 @@ input[type=range] { width: 100%; accent-color: var(--blue); height: 24px; margin
 .veh.ghost { opacity: 0.55 }
 .barr-key, .barr { display: inline-block; width: 18px; height: 8px; border-radius: 3px; border: 1px solid var(--g800); flex: none;
   background: repeating-linear-gradient(-45deg, var(--barricade) 0 4px, #fff 4px 8px) }
-.barr { width: 24px; height: 11px; box-shadow: 0 2px 5px rgba(0, 27, 55, 0.35) }
+.barr { width: 24px; height: 11px; box-shadow: 0 2px 5px rgba(0, 27, 55, 0.35); transform-origin: 50% 50% }
+.sig-key { display: inline-block; width: 4px; height: 12px; border-radius: 1px; background: linear-gradient(#f04452 0 33%, #ffb300 33% 66%, #03b26c 66%); flex: none }
+.cross-key { display: inline-block; width: 14px; height: 10px; flex: none; border: 1px solid var(--g800);
+  background: repeating-linear-gradient(90deg, #fff 0 2px, var(--road) 2px 4px) }
 .barr-key.seen, .barr.seen { outline: 3px solid var(--fugitive); outline-offset: 1px }
 
 /* tablet / phone: map first, panels slide up over it like a bottom sheet */

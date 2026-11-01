@@ -129,6 +129,46 @@ def build(map_name: str, profile: str = "ideal") -> Path:
     return Path(out_net)
 
 
+def crossings(map_name: str, profile: str = "real") -> list[dict]:
+    """Crosswalks SUMO generates for this network, for display only.
+
+    The simulated network has no sidewalks: the simulator addresses lane 0 as the driving lane in
+    many places, and netconvert puts the sidewalk at lane 0. So the same plain files are converted a
+    second time with sidewalks and crosswalks guessed (``<stem>_display.net.xml``) and only the
+    crosswalk shapes are kept (``<stem>_crossings.json``: [{"pts": [[x, y], ...], "w": metres}]).
+    There are no pedestrians, so nothing in the simulation depends on them."""
+    import json
+    import xml.etree.ElementTree as ET
+
+    stem = NETS / f"{map_name}_{profile}"
+    cache = Path(f"{stem}_crossings.json")
+    if cache.exists():
+        return json.loads(cache.read_text(encoding="utf-8"))
+    if not Path(f"{stem}.nod.xml").exists():
+        build(map_name, profile)
+    display = Path(f"{stem}_display.net.xml")
+    args = [sumo_bin("netconvert"), "--node-files", f"{stem}.nod.xml", "--edge-files", f"{stem}.edg.xml",
+            "--connection-files", f"{stem}.con.xml", "--output-file", str(display),
+            "--offset.disable-normalization", "true", "--geometry.remove", "false", "--no-warnings", "true",
+            "--sidewalks.guess", "true", "--crossings.guess", "true"]
+    if profile == "real":
+        args += ["--tls.guess", "true", "--tls.guess.threshold", "40", "--tls.join", "true",
+                 "--junctions.join", "false"]
+    subprocess.run(args, check=True)
+    out = []
+    for _event, element in ET.iterparse(str(display)):
+        if element.tag != "edge":
+            continue
+        if element.get("function") == "crossing":
+            lane = element.find("lane")
+            if lane is not None and lane.get("shape"):
+                pts = [[float(v) for v in pair.split(",")] for pair in lane.get("shape").split()]
+                out.append(dict(pts=pts, w=float(lane.get("width", "4"))))
+        element.clear()
+    cache.write_text(json.dumps(out), encoding="utf-8")
+    return out
+
+
 def traffic(map_name: str, profile: str, period_s: float, end_s: float = 1200.0, seed: int = 0) -> Path:
     """Background traffic: random trips (fringe-weighted, so through traffic crosses the map) routed by
     duarouter. -> sumo/nets/<map>_<profile>_traffic<period>.rou.xml"""
