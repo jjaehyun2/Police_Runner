@@ -6,9 +6,13 @@ import "./style.css";
 // types
 type LatLon = [number, number];
 interface MapInfo { name: string; label: string; roads: LatLon[][]; exits: LatLon[]; bounds: [LatLon, LatLon] }
-interface Frame { t: number; p: LatLon[]; f: LatLon; role: number[]; tgt: (LatLon | null)[]; reg: string; open: number; ox: LatLon[]; bg?: LatLon[]; bk?: number[]; bars?: LatLon[]; kit?: boolean[] }
-interface Setup { police: LatLon[]; fugitive: LatLon; policy: string; engine: string; profile: string; traffic: number | null; barricades?: LatLon[] }
-interface Run { id: number; mapInfo: MapInfo; setup: Setup | null; frames: Frame[]; outcome: string | null; seconds: number | null; error: string | null; label: string; done: boolean; recorded?: boolean }
+// a barricade is a line across the road ([LatLon, LatLon]); older recordings carry just its point
+type BarShape = LatLon | LatLon[];
+interface Frame { t: number; p: LatLon[]; f: LatLon; role: number[]; tgt: (LatLon | null)[]; reg: string; open: number; ox: LatLon[]; bg?: LatLon[]; bk?: number[]; bars?: BarShape[]; kit?: boolean[]; sig?: string[] }
+interface Setup { police: LatLon[]; fugitive: LatLon; policy: string; engine: string; profile: string; traffic: number | null; barricades?: BarShape[] }
+// static street furniture of the simulated network: signal stop lines (coloured from Frame.sig) and crosswalks
+interface NetInfo { stops: { tls: number; idx: number[]; line: LatLon[] }[]; cross: { w: number; pts: LatLon[] }[] }
+interface Run { id: number; mapInfo: MapInfo; setup: Setup | null; frames: Frame[]; outcome: string | null; seconds: number | null; error: string | null; label: string; done: boolean; recorded?: boolean; net?: NetInfo }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const OUTCOME: Record<string, string> = { success: "검거", escape: "탈출", timeout: "시간초과" };
@@ -79,11 +83,109 @@ const bgLayer = L.layerGroup().addTo(map);
 const trailLayer = L.layerGroup().addTo(map);
 const targetLayer = L.layerGroup().addTo(map);
 const exitLayer = L.layerGroup().addTo(map);
+const crossLayer = L.layerGroup().addTo(map);
+const sigLayer = L.layerGroup().addTo(map);
 const barLayer = L.layerGroup().addTo(map);
 const vehLayer = L.layerGroup().addTo(map);
 
 const vehIcon = (cls: string, text = "") => L.divIcon({ className: "", html: `<div class="veh ${cls}">${text}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
-const barIcon = (seen = false) => L.divIcon({ className: "", html: `<div class="barr${seen ? " seen" : ""}"></div>`, iconSize: [24, 11], iconAnchor: [12, 6] });
+
+// barricades are drawn across the road: a striped bar rotated to the line it closes, at least 24 px long
+const BAR_HALF_M = 4;                     // half-length of a placed barricade before the server reports its real size
+function metresPerPixel(at: L.LatLng): number {
+  const p = map.latLngToLayerPoint(at);
+  return map.distance(map.layerPointToLatLng(p), map.layerPointToLatLng(p.add([10, 0]))) / 10;
+}
+// the road direction (screen space) nearest to a point on the simulator's roads, or null
+function roadDirection(ll: L.LatLng): L.Point | null {
+  if (!info) return null;
+  const p = map.latLngToLayerPoint(ll);
+  let best: L.Point | null = null, bd = Infinity;
+  for (const r of info.roads) {
+    for (let i = 1; i < r.length; i++) {
+      const a = map.latLngToLayerPoint(r[i - 1]), b = map.latLngToLayerPoint(r[i]);
+      const d = L.LineUtil.closestPointOnSegment(p, a, b).distanceTo(p);
+      if (d < bd && a.distanceTo(b) > 0) { bd = d; best = b.subtract(a); }
+    }
+  }
+  return best ? best.divideBy(best.distanceTo(L.point(0, 0))) : null;
+}
+// a placed (snapped) point -> the line across its road
+function crossLine(ll: L.LatLng): LatLon[] {
+  const dir = roadDirection(ll);
+  if (!dir) return [[ll.lat, ll.lng], [ll.lat, ll.lng]];
+  const half = BAR_HALF_M / metresPerPixel(ll);
+  const p = map.latLngToLayerPoint(ll), n = L.point(-dir.y * half, dir.x * half);
+  const a = map.layerPointToLatLng(p.subtract(n)), b = map.layerPointToLatLng(p.add(n));
+  return [[a.lat, a.lng], [b.lat, b.lng]];
+}
+function barMarker(shape: BarShape, seen: boolean, options: L.MarkerOptions = {}): L.Marker {
+  const line = typeof shape[0] === "number" ? crossLine(L.latLng(shape as LatLon)) : shape as LatLon[];
+  const a = map.latLngToLayerPoint(line[0]), b = map.latLngToLayerPoint(line[1]);
+  const len = Math.max(24, a.distanceTo(b));
+  const deg = a.distanceTo(b) > 0 ? Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI : 0;
+  const centre = map.layerPointToLatLng(a.add(b).divideBy(2));
+  const icon = L.divIcon({ className: "", html: `<div class="barr${seen ? " seen" : ""}" style="width:${len.toFixed(1)}px;transform:rotate(${deg.toFixed(1)}deg)"></div>`,
+    iconSize: [len, 11], iconAnchor: [len / 2, 6] });
+  return L.marker(centre, { icon, ...options });
+}
+
+// signals: the colour a driver on that lane sees (green if any of its movements may go)
+const SIG: Record<string, string> = { green: "#03b26c", yellow: "#ffb300", red: "#f04452", off: "#8b95a1" };
+function laneColour(state: string, idx: number[]): string {
+  let y = false, r = false;
+  for (const i of idx) {
+    const ch = state.charAt(i);
+    if (ch === "G" || ch === "g") return "green";
+    if (ch === "y" || ch === "Y") y = true; else if (ch === "r" || ch === "u") r = true;
+  }
+  return y ? "yellow" : r ? "red" : "off";
+}
+// zoomed out: one dot per signal, coloured by the phase most of its movements are in
+function dominantColour(state: string): string {
+  let g = 0, y = 0, r = 0;
+  for (const ch of state.toLowerCase()) { if (ch === "g") g++; else if (ch === "y") y++; else if (ch === "r") r++; }
+  if (!g && !y && !r) return "off";
+  if (y && y >= Math.max(g, r)) return "yellow";
+  return g > r ? "green" : "red";
+}
+const DETAIL_ZOOM = 16;                   // stop lines and crosswalks from this zoom on, signal dots below
+function drawCrossings() {
+  crossLayer.clearLayers();
+  const net = current?.net;
+  if (!net?.cross.length || map.getZoom() < DETAIL_ZOOM) return;
+  const mpp = metresPerPixel(map.getCenter());
+  const dash = Math.max(2, 0.6 / mpp);
+  for (const c of net.cross) {
+    L.polyline(c.pts, { renderer: canvas, color: "#ffffff", weight: Math.min(16, Math.max(3, c.w / mpp)), opacity: 0.85,
+      dashArray: `${dash.toFixed(1)} ${dash.toFixed(1)}`, lineCap: "butt", interactive: false }).addTo(crossLayer);
+  }
+}
+function drawSignals(state: string[] | undefined) {
+  sigLayer.clearLayers();
+  const net = current?.net;
+  if (!net?.stops.length || !state) return;
+  if (map.getZoom() >= DETAIL_ZOOM) {
+    for (const s of net.stops) {
+      L.polyline(s.line, { renderer: canvas, color: SIG[laneColour(state[s.tls] ?? "", s.idx)], weight: 4, opacity: 0.95, lineCap: "butt", interactive: false }).addTo(sigLayer);
+    }
+    return;
+  }
+  const centre = new Map<number, [number, number, number]>();
+  for (const s of net.stops) {
+    const c = centre.get(s.tls) ?? [0, 0, 0];
+    centre.set(s.tls, [c[0] + (s.line[0][0] + s.line[1][0]) / 2, c[1] + (s.line[0][1] + s.line[1][1]) / 2, c[2] + 1]);
+  }
+  centre.forEach(([la, lo, n], t) => {
+    const col = SIG[dominantColour(state[t] ?? "")];
+    L.circleMarker([la / n, lo / n], { renderer: canvas, radius: 4, color: css("--panel"), weight: 1.5, fillColor: col, fillOpacity: 1, interactive: false }).addTo(sigLayer);
+  });
+}
+map.on("zoomend", () => {
+  drawCrossings();
+  if (map.hasLayer(placeLayer)) drawPlacement();
+  else redrawFrame(true);
+});
 
 // ---------------------------------------------------------------------------------------------
 // state
@@ -135,18 +237,35 @@ $("modeFugitive").addEventListener("click", () => setMode("fugitive"));
 $("modeBarricade").addEventListener("click", () => setMode("barricade"));
 
 // nearest point on the simulator's roads (the server snaps again; this just shows where it lands)
+// The server stands a barricade 5-95 % along its road (clear of the intersections); clamp the same way
+// here so the placed barricade is shown where it will block.
+const BAR_MIN_FRAC = 0.05, BAR_MAX_FRAC = 0.95;
 function snapToRoad(ll: L.LatLng): L.LatLng {
   if (!info) return ll;
   const p = map.latLngToLayerPoint(ll);
-  let best: L.Point | null = null, bd = Infinity;
+  let best: { road: LatLon[]; i: number; t: number } | null = null, bd = Infinity;
   for (const r of info.roads) {
     for (let i = 1; i < r.length; i++) {
       const a = map.latLngToLayerPoint(r[i - 1]), b = map.latLngToLayerPoint(r[i]);
       const q = L.LineUtil.closestPointOnSegment(p, a, b), d = q.distanceTo(p);
-      if (d < bd) { bd = d; best = q; }
+      if (d < bd) { bd = d; best = { road: r, i, t: a.distanceTo(b) > 0 ? q.distanceTo(a) / a.distanceTo(b) : 0 }; }
     }
   }
-  return best ? map.layerPointToLatLng(best) : ll;
+  if (!best) return ll;
+  // metres along the road to the snapped point, clamped, then back to a point on the road
+  const pts = best.road.map((q) => L.latLng(q));
+  const seg = pts.slice(1).map((q, k) => pts[k].distanceTo(q));
+  const total = seg.reduce((s, x) => s + x, 0);
+  let along = seg.slice(0, best.i - 1).reduce((s, x) => s + x, 0) + best.t * seg[best.i - 1];
+  along = Math.min(BAR_MAX_FRAC * total, Math.max(BAR_MIN_FRAC * total, along));
+  for (let k = 0; k < seg.length; k++) {
+    if (along <= seg[k] || k === seg.length - 1) {
+      const w = seg[k] > 0 ? Math.min(1, along / seg[k]) : 0;
+      return L.latLng(pts[k].lat + w * (pts[k + 1].lat - pts[k].lat), pts[k].lng + w * (pts[k + 1].lng - pts[k].lng));
+    }
+    along -= seg[k];
+  }
+  return ll;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -165,7 +284,7 @@ function drawPlacement() {
     m.addTo(placeLayer);
   }
   barricades.forEach((ll, i) => {
-    const m = L.marker(ll, { icon: barIcon(), draggable: true, keyboard: true, title: `바리케이드 ${i + 1}` });
+    const m = barMarker([ll.lat, ll.lng], false, { draggable: true, keyboard: true, title: `바리케이드 ${i + 1}` });
     m.on("dragend", () => { barricades[i] = snapToRoad(m.getLatLng()); drawPlacement(); });
     m.on("click", () => { barricades.splice(i, 1); drawPlacement(); });
     m.addTo(placeLayer);
@@ -206,7 +325,8 @@ function showPlacement() {
   cancelAnimationFrame(rafId);
   $("play").textContent = "▶";
   regionLayer.clearLayers(); bgLayer.clearLayers(); trailLayer.clearLayers(); targetLayer.clearLayers(); vehLayer.clearLayers(); exitLayer.clearLayers(); barLayer.clearLayers();
-  $("barLegend").hidden = true;
+  sigLayer.clearLayers(); crossLayer.clearLayers();
+  $("barLegend").hidden = true; $("sigLegend").hidden = true; $("crossLegend").hidden = true;
   map.addLayer(placeLayer);
 }
 
@@ -249,7 +369,9 @@ $("fallback").addEventListener("click", async () => {
     showMap(saved.map);
     police = saved.setup.police.map((p) => L.latLng(p[0], p[1]));
     fugitive = L.latLng(saved.setup.fugitive[0], saved.setup.fugitive[1]);
-    barricades = (saved.setup.barricades ?? []).map((p) => L.latLng(p[0], p[1]));
+    barricades = (saved.setup.barricades ?? []).map((q) => typeof q[0] === "number"
+      ? L.latLng((q as LatLon)[0], (q as LatLon)[1])
+      : L.latLng(((q as LatLon[])[0][0] + (q as LatLon[])[1][0]) / 2, ((q as LatLon[])[0][1] + (q as LatLon[])[1][1]) / 2));
     drawPlacement();
     const replay: Run = { id: ++runSeq, mapInfo: saved.map, setup: saved.setup, frames: saved.frames,
       outcome: saved.outcome, seconds: saved.seconds, error: null, done: true, recorded: true,
@@ -319,6 +441,7 @@ async function startRun() {
 
 function handle(run: Run, msg: Record<string, unknown>) {
   if (msg.type === "setup") { run.setup = msg as unknown as Setup; if (current === run) { setStatus("running", "추격 진행 중"); } }
+  else if (msg.type === "net") { run.net = msg as unknown as NetInfo; if (current === run) { drawCrossings(); redrawFrame(true); } }
   else if (msg.type === "frame") {
     run.frames.push(msg as unknown as Frame);
     if (current === run) {
@@ -427,7 +550,11 @@ function redrawFrame(force: boolean) {
     barLayer.clearLayers();
     const bars = a.bars ?? current.setup?.barricades ?? [];
     $("barLegend").hidden = !bars.length;
-    bars.forEach((q, k) => L.marker(q, { icon: barIcon(a.bk?.includes(k) ?? false), interactive: false, keyboard: false }).addTo(barLayer));
+    bars.forEach((q, k) => barMarker(q, a.bk?.includes(k) ?? false, { interactive: false, keyboard: false }).addTo(barLayer));
+    drawSignals(a.sig);
+    if (force) drawCrossings();
+    $("sigLegend").hidden = !(current.net?.stops.length && a.sig);
+    $("crossLegend").hidden = !(current.net?.cross.length);
     bgLayer.clearLayers();
     $("bgLegend").hidden = !a.bg;
     if (a.bg) { const c = css("--bg-car"); a.bg.forEach((q) => L.circleMarker(q, { renderer: canvas, radius: 2.5, color: c, weight: 0, fillOpacity: 0.8, interactive: false }).addTo(bgLayer)); }

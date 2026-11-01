@@ -73,13 +73,23 @@ class MapData:
         self.exits = exit_nodes(self.net)
         bd = boundary_distance(self.net)
         self.pos = {i.id: i.position_xy for i in self.net.intersections}
-        self.index: dict[tuple[int, int], int] = {}
+        # one entry per road: the two carriageways of a road are drawn once (the same test barricades use
+        # to close both, sumo_sim.opposite_carriageway), but a different road between the same two
+        # intersections keeps its own entry, so a barricade placed on it snaps to it, not its neighbour
+        from sumo_sim import opposite_carriageway
+        self.road_ends: list[tuple[int, int]] = []
+        self.road_sids: list[set[int]] = []                  # the directed segments each road entry draws
+        by_ends: dict[tuple[int, int], list[tuple[int, object]]] = {}
         roads = []
         for s in self.net.segments:
-            key = tuple(sorted((s.start_id, s.end_id)))
-            if key in self.index:
+            ends = (min(s.start_id, s.end_id), max(s.start_id, s.end_id))
+            match = next((i for i, rep in by_ends.get(ends, []) if opposite_carriageway(rep, s)), None)
+            if match is not None:
+                self.road_sids[match].add(int(s.id))
                 continue
-            self.index[key] = len(roads)
+            by_ends.setdefault(ends, []).append((len(roads), s))
+            self.road_ends.append((s.start_id, s.end_id))
+            self.road_sids.append({int(s.id)})
             roads.append([ll(p) for p in s.geometry_xy])
         self.roads = roads
         drivable = [i.id for i in self.net.intersections if not i.virtual and i.outgoing_segment_ids]
@@ -96,13 +106,17 @@ class MapData:
         pts = np.array([self.pos[int(n)] for n in pool])
         return int(pool[int(np.argmin(((pts - (x, y)) ** 2).sum(1)))])
 
-    def region_bits(self, reach, g=None) -> tuple[str, list]:
-        """Escape region as a road bitset (base64) and the open exits' coordinates (``g``: the road
-        graph with barricaded roads removed, when there are any)."""
-        region, open_exits = multi_sim.escape_region(g or self.g, reach, SPEED, SPEED, self.exits)
+    def region_bits(self, reach, g=None, police_g=None, closed=()) -> tuple[str, list]:
+        """Escape region as a road bitset (base64) and the open exits' coordinates. With barricades,
+        ``g`` is the fugitive's road graph (barricaded roads removed), ``police_g`` the officers'
+        (they drive through barricades) and ``closed`` the barricaded segment ids: a closed road is
+        not part of the region even when both its ends are."""
+        region, open_exits = multi_sim.escape_region(g or self.g, reach, SPEED, SPEED, self.exits,
+                                                     police_g=police_g)
+        closed = set(closed)
         bits = bytearray((len(self.roads) + 7) // 8)
-        for (a, b), i in self.index.items():
-            if a in region and b in region:
+        for i, (a, b) in enumerate(self.road_ends):
+            if a in region and b in region and not self.road_sids[i] <= closed:
                 bits[i >> 3] |= 1 << (i & 7)
         return base64.b64encode(bytes(bits)).decode(), [ll(self.pos[e]) for e in open_exits]
 
@@ -124,8 +138,10 @@ def get_map(name: str) -> MapData:
 
 # -- simulation runners (worker threads) --------------------------------------------------------
 def _goal_payload(m: MapData, goals) -> tuple[list[int], list]:
-    role = [0 if g[0] == "pursue" else 1 for g in goals]
-    tgt = [None if g[0] == "pursue" else ll(m.pos[g[1]]) for g in goals]
+    """Role (0 chase, 1 hold) and held intersection per officer. ``("edge", segment)`` is a chaser's
+    next road toward the fugitive (sumo_sim.TargetPolicy.goals), so it is a chase, not a held point."""
+    role = [1 if g[0] == "hold" else 0 for g in goals]
+    tgt = [ll(m.pos[g[1]]) if g[0] == "hold" else None for g in goals]
     return role, tgt
 
 
@@ -135,12 +151,20 @@ def run_sumo(m: MapData, case, spec: str, req: "RunRequest", emit, barricades=()
 
     def on_frame(fr):
         role, tgt = _goal_payload(m, fr["goals"])
-        reg, ox = m.region_bits([tuple(r) for r in fr["reach"]], getattr(holder.get("sim"), "pg", None))
+        sim = holder.get("sim")
+        reg, ox = m.region_bits([tuple(r) for r in fr["reach"]], getattr(sim, "pg", None),
+                                police_g=getattr(sim, "og", None), closed=getattr(sim, "closed", ()))
+        # "kit" (who still carries a barricade) only means something when officers set out carrying one;
+        # otherwise the panel would read every all-False kit as "already placed"
+        carrying = holder.setdefault("carrying", any(fr.get("kit", [])))
         out = dict(type="frame", t=fr["t"], p=[ll(q) for q in fr["p"]], f=ll(fr["f"]), role=role, tgt=tgt,
-                   reg=reg, open=len(ox), ox=ox, bk=fr.get("known", []), kit=fr.get("kit", []),
-                   bars=[ll(q) for q in fr.get("bars", [])])
+                   reg=reg, open=len(ox), ox=ox, bk=fr.get("known", []),
+                   kit=fr.get("kit", []) if carrying else [],
+                   bars=[[ll(q) for q in line] for line in fr.get("bars", [])])
         if "bg" in fr:
             out["bg"] = [ll(q) for q in fr["bg"][:600]]
+        if "sig" in fr:
+            out["sig"] = fr["sig"]
         emit(out)
 
     with _START_LOCK:
@@ -148,8 +172,20 @@ def run_sumo(m: MapData, case, spec: str, req: "RunRequest", emit, barricades=()
                           ignore_red=req.ignore_red, on_frame=on_frame, background=req.traffic is not None,
                           barricades=barricades, carry_barricades=req.carry_barricades)
     holder["sim"] = sim
+    emit(_net_payload(m, sim, req.profile))
     r = sim.run()
     return dict(outcome=r.outcome, seconds=round(r.seconds, 2))
+
+
+def _net_payload(m: MapData, sim, profile: str) -> dict:
+    """Static street furniture of the simulated network, sent once before the frames: signal stop
+    lines (coloured per frame from ``sig``) and SUMO-generated crosswalks ("real" profile only)."""
+    stops = [dict(tls=s["tls"], idx=s["idx"], line=[ll(q) for q in s["line"]]) for s in sim.signal_stops()]
+    cross = []
+    if profile == "real":
+        from build_net import crossings
+        cross = [dict(w=c["w"], pts=[ll(q) for q in c["pts"]]) for c in crossings(m.name, profile)]
+    return dict(type="net", stops=stops, cross=cross)
 
 
 def run_point(m: MapData, case, spec: str, req: "RunRequest", emit, barricades=()) -> dict:
@@ -159,7 +195,9 @@ def run_point(m: MapData, case, spec: str, req: "RunRequest", emit, barricades=(
     sim = multi_sim.MultiPursuitSim(m.net, case)
 
     def frame():
-        role, tgt = _goal_payload(m, tp.goals())
+        # policies stepped through the bridge without a recommendation of their own (greedy) report no
+        # goals; every officer is then chasing, which is what the panel must show
+        role, tgt = _goal_payload(m, tp.goals() or [("pursue", None)] * len(case.police))
         reach = [sim.reach(v) for v in sim.police] + [sim.reach(sim.fugs[0])]
         reg, ox = m.region_bits(reach)
         emit(dict(type="frame", t=sim.step_count, p=[ll(q) for q in sim.police_xy()], f=ll(sim.position(sim.fugs[0])),
@@ -263,7 +301,7 @@ async def run(req: RunRequest):
     case = multi_sim.MultiCase(tuple(police), (fug,), (seed,), SPEED, SPEED, max_steps=req.max_seconds)
     if (req.barricades or req.carry_barricades) and req.engine != "sumo":
         raise HTTPException(422, "바리케이드는 SUMO 시뮬레이터에서만 쓸 수 있습니다.")
-    from sumo_sim import barricade_at
+    from sumo_sim import barricade_at, barricade_line
     barricades = []
     for b in req.barricades:
         x, y = TO_XY.transform(b[1], b[0])
@@ -285,7 +323,8 @@ async def run(req: RunRequest):
         try:
             emit(dict(type="setup", police=[ll(m.pos[n]) for n in police], fugitive=ll(m.pos[fug]),
                       policy=label, engine=req.engine, profile=req.profile, traffic=req.traffic,
-                      barricades=[ll(b.xy) for b in barricades], carry_barricades=req.carry_barricades))
+                      barricades=[[ll(q) for q in barricade_line(b)] for b in barricades],
+                      carry_barricades=req.carry_barricades))
             runner = run_sumo if req.engine == "sumo" else run_point
             end = runner(m, case, spec, req, emit, tuple(barricades))
             emit(dict(type="end", **end))

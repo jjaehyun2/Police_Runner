@@ -388,15 +388,17 @@ def make_ring_case(network: ModelNetwork, tag: str, idx: int, n_police: int, *, 
 
 # -- containment analysis ---------------------------------------------------------------------
 def escape_region(g: _Graph, reach: Sequence[tuple[int, float]], vp: float, vf: float,
-                  exits: Sequence[int], margin_s: float = 25.0 / 16.0) -> tuple[set, list]:
+                  exits: Sequence[int], margin_s: float = 25.0 / 16.0,
+                  police_g: _Graph | None = None) -> tuple[set, list]:
     """Intersections the fugitive can reach strictly before every officer, and the boundary exits
     among them. ``reach`` = [(next node, metres to it)] for each officer, then the fugitive.
     Dijkstra from the fugitive that may not pass a node an officer reaches first (within
-    margin_s, i.e. the capture radius at officer speed)."""
+    margin_s, i.e. the capture radius at officer speed). ``g`` is the fugitive's road map;
+    ``police_g`` the officers' when it differs (officers drive through barricades)."""
     import heapq
     tp: dict[int, float] = {}
     for n0, off in reach[:-1]:
-        for node, d in g.dist_from(n0).items():
+        for node, d in (police_g or g).dist_from(n0).items():
             t = (off + d) / vp
             if t < tp.get(node, math.inf):
                 tp[node] = t

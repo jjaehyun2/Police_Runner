@@ -82,6 +82,13 @@ HOLD_S = 1e6
 # blocked police car pulls over, and the police car squeezes past at SE_YIELD_V (car-following off meanwhile)
 YIELD_V = float(os.environ["SE_YIELD_V"]) if os.environ.get("SE_YIELD_V") else None
 YIELD_DIST_M = 25.0                                              # SUMO's default bluelight reaction distance
+#: Barricades stop the fugitive and other traffic but let patrol cars through: an officer whose leader
+#: within this distance is a barricade blocker drives through it with car-following off (far enough
+#: ahead that it never brakes for the blocker at the "real" profile's top speed; see _gate_blockers).
+POLICE_OPEN_M = 120.0
+#: A carried barricade's blocker that SUMO has not managed to insert after this many steps (10 s at
+#: the default 0.25 s step) fails the run instead of leaving its lane open.
+PENDING_MAX_STEPS = 40
 PROFILES = {
     # vehicle dynamics per network profile: (accel, decel, emergencyDecel) m/s^2
     "ideal": (50.0, 50.0, 60.0),
@@ -103,16 +110,87 @@ def _edge_sid(edge_id: str) -> int | None:
 
 @dataclass(frozen=True)
 class Barricade:
-    xy: tuple[float, float]
+    xy: tuple[float, float]                                     # point on the road where it stands
     at: tuple[tuple[int, float], ...]                           # (directed segment id, fraction along it)
+    heading: float = 0.0                                        # road direction there (radians, maths angle)
+
+
+#: A segment counts as the opposite carriageway of a closed road only if it runs within this distance of
+#: it along its whole length: two intersections can also be joined by a different road.
+OPPOSITE_MAX_M = 5.0
+#: Half-length (m) of the drawn barricade line when no blocker vehicle stands yet.
+BAR_HALF_M = 4.0
 
 
 def _polyline_length(pts) -> float:
     return sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
 
 
+def _point_along(pts, d: float) -> tuple[tuple[float, float], float]:
+    """Point ``d`` metres along a polyline and the heading (radians) of the piece it lies on."""
+    run = 0.0
+    for a, b in zip(pts, pts[1:]):
+        step = math.dist(a, b)
+        if step > 0 and run + step >= d:
+            w = (d - run) / step
+            return (a[0] + w * (b[0] - a[0]), a[1] + w * (b[1] - a[1])), math.atan2(b[1] - a[1], b[0] - a[0])
+        run += step
+    a, b = pts[-2], pts[-1]
+    return (float(b[0]), float(b[1])), math.atan2(b[1] - a[1], b[0] - a[0])
+
+
+def _distance_to_polyline(p, pts) -> float:
+    best = math.inf
+    for a, b in zip(pts, pts[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        ln2 = dx * dx + dy * dy
+        u = 0.0 if ln2 == 0 else min(1.0, max(0.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / ln2))
+        best = min(best, math.dist(p, (a[0] + u * dx, a[1] + u * dy)))
+    return best
+
+
+def opposite_carriageway(s0, s) -> bool:
+    """Whether ``s`` is the other carriageway of the road ``s0``: it joins the same two
+    intersections the other way, and the two run alongside each other along their whole length
+    (every vertex of each within OPPOSITE_MAX_M of the other). A different road between the same
+    intersections is not. Shared by barricade closing and the dashboard's road list."""
+    if s.id == s0.id or (s.start_id, s.end_id) != (s0.end_id, s0.start_id):
+        return False
+    return (all(_distance_to_polyline(p, s0.geometry_xy) <= OPPOSITE_MAX_M for p in s.geometry_xy)
+            and all(_distance_to_polyline(p, s.geometry_xy) <= OPPOSITE_MAX_M for p in s0.geometry_xy))
+
+
+def _along(pts, p) -> float:
+    """Metres along a polyline to the point on it nearest ``p``."""
+    best, best_along, run = math.inf, 0.0, 0.0
+    for a, b in zip(pts, pts[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        ln2 = dx * dx + dy * dy
+        u = 0.0 if ln2 == 0 else min(1.0, max(0.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / ln2))
+        d = math.dist(p, (a[0] + u * dx, a[1] + u * dy))
+        if d < best:
+            best, best_along = d, run + u * math.sqrt(ln2)
+        run += math.sqrt(ln2)
+    return best_along
+
+
+def _closing(network, s0, frac: float) -> Barricade:
+    """Close directed segment ``s0`` at ``frac`` and its opposite carriageway at the same spot:
+    the barricade point projected onto that carriageway (its length and shape may differ)."""
+    xy, heading = _point_along(s0.geometry_xy, frac * _polyline_length(s0.geometry_xy))
+    at = [(int(s0.id), frac)]
+    for s in network.segments:
+        if opposite_carriageway(s0, s):
+            f = _along(s.geometry_xy, xy) / max(_polyline_length(s.geometry_xy), 1e-6)
+            at.append((int(s.id), min(0.95, max(0.05, f))))
+    return Barricade((float(xy[0]), float(xy[1])), tuple(at), heading)
+
+
 def barricade_at(network, xy) -> Barricade:
-    """Close the road nearest to ``xy`` (every directed segment between its two intersections)."""
+    """Close the road nearest to ``xy`` (both directions of that road at that point).
+
+    The barricade stands at the clamped fraction (5-95 % along, clear of the intersections), and
+    ``xy`` is that point on the road -- not the raw projection -- so it is drawn where it blocks."""
     best = None
     for s in network.segments:
         pts, run = s.geometry_xy, 0.0
@@ -123,17 +201,11 @@ def barricade_at(network, xy) -> Barricade:
             q = (a[0] + u * dx, a[1] + u * dy)
             d = math.dist(q, xy)
             if best is None or d < best[0]:
-                best = (d, s, run + u * math.sqrt(ln2), q)
+                best = (d, s, run + u * math.sqrt(ln2))
             run += math.sqrt(ln2)
-    _, s0, along, q = best
+    _, s0, along = best
     frac = min(0.95, max(0.05, along / max(_polyline_length(s0.geometry_xy), 1e-6)))
-    at = []
-    for s in network.segments:
-        if (s.start_id, s.end_id) == (s0.start_id, s0.end_id):
-            at.append((int(s.id), frac))
-        elif (s.start_id, s.end_id) == (s0.end_id, s0.start_id):
-            at.append((int(s.id), 1.0 - frac))
-    return Barricade((float(q[0]), float(q[1])), tuple(at))
+    return _closing(network, s0, frac)
 
 
 def barricade_on(network, u: int, v: int, offset_m: float = DEPLOY_OFFSET_M) -> Barricade:
@@ -142,18 +214,15 @@ def barricade_on(network, u: int, v: int, offset_m: float = DEPLOY_OFFSET_M) -> 
     s0 = next(s for s in segs if s.start_id == u) if any(s.start_id == u for s in segs) else segs[0]
     length = _polyline_length(s0.geometry_xy)
     d = min(offset_m, 0.4 * length)
-    frac_from_u = d / max(length, 1e-6)
-    pts, run, xy = s0.geometry_xy if s0.start_id == u else s0.geometry_xy[::-1], 0.0, None
-    for a, b in zip(pts, pts[1:]):
-        step = math.dist(a, b)
-        if run + step >= d:
-            w = (d - run) / max(step, 1e-9)
-            xy = (a[0] + w * (b[0] - a[0]), a[1] + w * (b[1] - a[1]))
-            break
-        run += step
-    xy = xy or pts[-1]
-    at = tuple((int(s.id), frac_from_u if s.start_id == u else 1.0 - frac_from_u) for s in segs)
-    return Barricade((float(xy[0]), float(xy[1])), at)
+    frac = d / max(length, 1e-6) if s0.start_id == u else 1.0 - d / max(length, 1e-6)
+    return _closing(network, s0, frac)
+
+
+def barricade_line(b: Barricade, half_m: float = BAR_HALF_M) -> list[list[float]]:
+    """The barricade drawn as a line across the road (perpendicular to it) through ``b.xy``."""
+    nx, ny = -math.sin(b.heading), math.cos(b.heading)
+    x, y = b.xy
+    return [[x - nx * half_m, y - ny * half_m], [x + nx * half_m, y + ny * half_m]]
 
 
 def _close(g: _Graph, sids) -> None:
@@ -164,6 +233,27 @@ def _close(g: _Graph, sids) -> None:
         g.rev[s.end_id].remove((s.start_id, float(s.length_m)))
     g._to.clear()
     g._from.clear()
+
+
+class _PoliceFugitiveGraph:
+    """The road map for a one-map team policy (EncirclementPolice) when barricades split the maps.
+
+    That policy asks ``dist_from(fugitive node)`` for where the fugitive can get and
+    ``dist_to(target)`` for how officers get to their targets; each is answered from its own map
+    (the fugitive's with barricaded roads closed, the officers' open). Everything else (positions,
+    segments) is the same on both."""
+
+    def __init__(self, police: _Graph, fugitive: _Graph) -> None:
+        self._police, self._fugitive = police, fugitive
+
+    def dist_from(self, node):
+        return self._fugitive.dist_from(node)
+
+    def dist_to(self, node):
+        return self._police.dist_to(node)
+
+    def __getattr__(self, name):
+        return getattr(self._police, name)
 
 
 class TargetPolicy:
@@ -255,8 +345,9 @@ class SumoPursuit:
         self.deployments: list[dict] = []
         self.tasks: dict[int, tuple[int, int]] = {}             # officer -> (node, neighbour) road to close
         self._held: dict[int, int] = {}                          # officer -> intersection it was holding
+        self.og = self.g                                         # officers drive through barricades
         if self.barricades or carry_barricades:
-            self.pg = _Graph(self.network)                       # officers' (true) road map
+            self.pg = _Graph(self.network)                       # true map with barricaded roads closed
             _close(self.pg, self.closed)
             from obs_ext import exit_nodes
             self.exits = exit_nodes(self.network)
@@ -318,9 +409,15 @@ class SumoPursuit:
             cmd += ["--start", "--delay", str(int(os.environ.get("SUMO_GUI_DELAY_MS", "100"))), "--quit-on-end"]
         traci.start(cmd, label=self.label, stdout=subprocess.DEVNULL)
         self.conn = traci.getConnection(self.label)
+        self.tls_ids: list[str] = list(self.conn.trafficlight.getIDList())
         self.police_ids = [f"police_{k}" for k in range(len(case.police))]
         self.fid = "fugitive"
         self.blocker_ids: list[str] = []
+        self.bar_blockers: dict[int, list[tuple[str, str]]] = {}  # barricade -> (vehicle, lane) blockers
+        self._blocker_spec: dict[str, tuple[str, str, int, float]] = {}  # vehicle -> (route, edge, lane, pos)
+        self._pending: dict[str, int] = {}                      # blocker -> steps it has waited to stand
+        self._through: set[str] = set()                          # police cars driving through a barricade
+        self.barricade_passes = 0
         self._target: dict[str, tuple] = {}
         self._decided: dict[str, int] = {}                     # fugitive: edge -> next edge decided
         self._last_edge: str | None = None
@@ -335,8 +432,8 @@ class SumoPursuit:
 
     # -- geometry / state ----------------------------------------------------------------------
     def _path_edges(self, src_node: int, dst_node: int) -> list[str]:
-        """Shortest directed path as edge ids for an officer (around every barricade)."""
-        to = self.pg.dist_to(dst_node)
+        """Shortest directed path as edge ids for an officer (barricades open for patrol cars)."""
+        to = self.og.dist_to(dst_node)
         if src_node not in to:
             return []
         out, cur, guard = [], src_node, 0
@@ -344,8 +441,6 @@ class SumoPursuit:
             guard += 1
             best = None
             for sid in self.network_out(cur):
-                if sid in self.closed:
-                    continue
                 s = self.seg[sid]
                 d = to.get(s.end_id)
                 if d is not None and (best is None or s.length_m + d < best[0]):
@@ -633,9 +728,9 @@ class SumoPursuit:
 
     # -- carried barricades ----------------------------------------------------------------------
     def _escape(self, tp: dict, freach, skip: set) -> tuple[int, int]:
-        """(escape-region size, number of open exits) on the officers' map with the node pairs in
-        ``skip`` also closed; ``tp`` = officers' earliest arrival times. The open exits themselves
-        are left in ``self._open``."""
+        """(escape-region size, number of open exits) on the fugitive's map (barricades closed) with
+        the node pairs in ``skip`` also closed; ``tp`` = officers' earliest arrival times (on their
+        own map, through barricades). The open exits themselves are left in ``self._open``."""
         import heapq
         f0, foff = freach
         g, vf = self.pg, self.case.vf
@@ -666,7 +761,7 @@ class SumoPursuit:
             vp = self.case.vp
             reaches = [self._reach(v) for v in self.police_ids]
             freach = self._reach(self.fid)
-            arrive = [{node: (off + d) / vp for node, d in self.pg.dist_from(n).items()} for n, off in reaches]
+            arrive = [{node: (off + d) / vp for node, d in self.og.dist_from(n).items()} for n, off in reaches]
 
             def tp_without(skip_k):
                 out: dict = {}
@@ -861,7 +956,13 @@ class SumoPursuit:
             self._place_barricade(k, b)
 
     def _place_barricade(self, k: int, b: Barricade) -> None:
+        """One stopped 2 m blocker on every lane of every closed segment, at the barricade's spot.
+
+        ``vehicle.add`` only queues a vehicle; SUMO inserts it on a later step, and not at all while
+        the spot is occupied. Whether every blocker actually stands is checked by
+        ``_await_blockers`` -- a barricade with a missing blocker leaves a lane open."""
         c = self.conn
+        placed = self.bar_blockers.setdefault(k, [])
         for sid, frac in b.at:
             edge = f"e{sid}"
             c.route.add(f"r_bar_{k}_{sid}", [edge])
@@ -869,13 +970,114 @@ class SumoPursuit:
                 length = c.lane.getLength(f"{edge}_{lane}")
                 pos = min(max(frac * length, 2.5), max(length - 0.5, 2.5))
                 vid = f"barricade_{k}_{sid}_{lane}"
-                try:
-                    c.vehicle.add(vid, f"r_bar_{k}_{sid}", typeID="barricade", depart="now", departPos=str(pos),
-                                  departSpeed="0", departLane=str(lane))
-                    c.vehicle.setStop(vid, edge, pos=pos, laneIndex=lane, duration=HOLD_S)
-                except Exception:                           # noqa: BLE001 (lane closed to cars, too short)
-                    continue
+                self._blocker_spec[vid] = (f"r_bar_{k}_{sid}", edge, lane, pos)
+                self._add_blocker(vid)
+                self._pending[vid] = 0
                 self.blocker_ids.append(vid)
+                placed.append((vid, f"{edge}_{lane}"))
+
+    def _add_blocker(self, vid: str) -> None:
+        route, edge, lane, pos = self._blocker_spec[vid]
+        self.conn.vehicle.add(vid, route, typeID="barricade", depart="now", departPos=str(pos),
+                              departSpeed="0", departLane=str(lane))
+        self.conn.vehicle.setStop(vid, edge, pos=pos, laneIndex=lane, duration=HOLD_S)
+
+    def _gate_blockers(self) -> None:
+        """Let patrol cars through barricades, and nobody else; check carried barricades stand.
+
+        Blockers never move. An officer whose leader (within POLICE_OPEN_M) is a blocker drives
+        through it with car-following off -- the run ignores collisions (--collision.action none),
+        as ``_yield_pass`` does to squeeze past a yielding car -- and car-following is back on once
+        no blocker leads it. A civilian car or the fugitive queued in front of the officer is its
+        leader instead, so the officer waits behind it, as at a real barricade.
+
+        A blocker placed mid-run (a carried barricade) is queued by SUMO until its spot is free; one
+        that has not stood after PENDING_MAX_STEPS fails the run rather than leave a lane open."""
+        if not self._blocker_spec:
+            return
+        c = self.conn.vehicle
+        live = set(c.getIDList())
+        for vid in list(self._pending):
+            if vid in live:
+                del self._pending[vid]
+            else:
+                self._pending[vid] += 1
+                if self._pending[vid] > PENDING_MAX_STEPS:
+                    raise RuntimeError(f"barricade blocker {vid} never stood on its lane")
+        base = self._speed_mode(self.ignore_red)
+        for vid in self.police_ids:
+            if vid not in live or vid in self._passing:
+                continue
+            lead = c.getLeader(vid, POLICE_OPEN_M)
+            through = lead is not None and lead[0] in self._blocker_spec
+            if through and vid not in self._through:
+                self._through.add(vid)
+                # speedMode bits only govern a commanded speed, so command one (as _yield_pass does)
+                c.setSpeedMode(vid, base & ~1)                      # drive through the blocker ahead
+                c.setSpeed(vid, self.case.vp if self.direct_speed else c.getAllowedSpeed(vid))
+                self.barricade_passes += 1
+            elif not through and vid in self._through:
+                self._through.discard(vid)
+                c.setSpeedMode(vid, base)
+                c.setSpeed(vid, self.case.vp if self.direct_speed else -1)
+
+    def _await_blockers(self, max_steps: int = 40) -> None:
+        """Step until every barricade blocker stands; fail loudly if one never gets onto its lane."""
+        c = self.conn
+        wanted = {vid for blockers in self.bar_blockers.values() for vid, _ in blockers}
+        for _ in range(max_steps):
+            if wanted <= set(c.vehicle.getIDList()):
+                break
+            c.simulationStep()
+        missing = sorted(wanted - set(c.vehicle.getIDList()))
+        if missing:
+            raise RuntimeError(f"barricade blockers never stood on their lanes: {missing[:6]}")
+        self._pending.clear()
+
+    def signal_stops(self) -> list[dict]:
+        """Static stop lines of the signalled approaches: one per incoming lane of each signal.
+
+        ``tls`` indexes ``tls_ids`` (and the per-frame ``sig`` states), ``idx`` the link indices that
+        lane feeds in that signal's state string, ``line`` the stop line across the lane's end."""
+        c = self.conn
+        stops = []
+        for t, tls in enumerate(self.tls_ids):
+            by_lane: dict[str, list[int]] = {}
+            for index, links in enumerate(c.trafficlight.getControlledLinks(tls)):
+                for incoming, _outgoing, _via in links:
+                    by_lane.setdefault(incoming, []).append(index)
+            for lane, idx in by_lane.items():
+                shape = c.lane.getShape(lane)
+                (x0, y0), (x1, y1) = shape[-2], shape[-1]
+                heading = math.atan2(y1 - y0, x1 - x0)
+                half = c.lane.getWidth(lane) / 2.0
+                nx, ny = -math.sin(heading), math.cos(heading)
+                stops.append(dict(tls=t, idx=sorted(set(idx)),
+                                  line=[[x1 - nx * half, y1 - ny * half], [x1 + nx * half, y1 + ny * half]]))
+        return stops
+
+    def barricade_lines(self) -> list[list[list[float]]]:
+        """Each barricade as a line across the road through the blockers that actually stand there.
+
+        The line is centred on the blockers, perpendicular to their lane, and reaches half a lane
+        beyond the outermost one, so it covers every lane it closes. A barricade whose blockers are
+        not on the road yet (a carried one placed this second) is drawn at its planned spot."""
+        c = self.conn
+        present = set(c.vehicle.getIDList())
+        lines = []
+        for k, b in enumerate(self.barricades):
+            standing = [(vid, lane) for vid, lane in self.bar_blockers.get(k, []) if vid in present]
+            if not standing:
+                lines.append(barricade_line(b))
+                continue
+            pts = [c.vehicle.getPosition(vid) for vid, _ in standing]
+            cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+            a = math.radians(c.vehicle.getAngle(standing[0][0]))            # compass: 0 = north, clockwise
+            nx, ny = math.cos(a), -math.sin(a)                                 # across the lane
+            half = max(abs((p[0] - cx) * nx + (p[1] - cy) * ny) for p in pts)
+            half += max(c.lane.getWidth(lane) for _, lane in standing) / 2.0
+            lines.append([[cx - nx * half, cy - ny * half], [cx + nx * half, cy + ny * half]])
+        return lines
 
     # -- episode -------------------------------------------------------------------------------
     def _spawn(self) -> None:
@@ -884,8 +1086,9 @@ class SumoPursuit:
         warm = 0
         while warm * self.dt < self.warmup_s:                    # let background traffic fill the roads
             c.simulationStep(); warm += 1
-        self.t0 = c.simulation.getTime()
         self._spawn_barricades()
+        self._await_blockers()
+        self.t0 = c.simulation.getTime()
         police_pl = tuple(VehiclePlacement(intersection_id=n) for n in self.case.police)
         fug_pl = VehiclePlacement(intersection_id=self.case.fugitives[0])
         goals = self.policy.targets(police_pl, fug_pl, 0, self.case.max_steps, (None,) * len(police_pl))
@@ -902,7 +1105,7 @@ class SumoPursuit:
             c.vehicletype.setColor(vt, (40, 90, 220, 255) if vt == "police" else (220, 60, 40, 255))
         fnode = self.case.fugitives[0]
         for k, (vid, n) in enumerate(zip(self.police_ids, self.case.police)):
-            first_out = [o for o in self.network_out(n) if o not in self.closed] or self.network_out(n)
+            first_out = self.network_out(n)                      # officers drive through barricades
             if goals[k][0] == "edge":
                 sid = int(goals[k][1])
                 edges = [f"e{sid}"] if sid not in self._loops else [f"e{first_out[0]}"]
@@ -958,7 +1161,9 @@ class SumoPursuit:
         self._last_goals = goals
         frame = dict(t=round(t, 2), p=[list(map(float, q)) for q in pxy], f=list(map(float, fxy)), goals=goals,
                      reach=[self._reach(v) for v in self.police_ids + [self.fid]], known=sorted(self.known),
-                     bars=[b.xy for b in self.barricades], kit=list(self.kit))
+                     bars=self.barricade_lines(), kit=list(self.kit))
+        if self.tls_ids:
+            frame["sig"] = [self.conn.trafficlight.getRedYellowGreenState(t) for t in self.tls_ids]
         if self.background:
             mine = set(self.police_ids) | {self.fid} | set(self.blocker_ids)
             frame["bg"] = [list(map(float, self.conn.vehicle.getPosition(v)))
@@ -1091,7 +1296,14 @@ class SumoPursuit:
                             self.policy.team.set_traffic(self._snap, ignore_red=(self.ignore_red, self.fugitive_ignore_red),
                                                          road_info=self.road_info())
                     if self.barricades and hasattr(self.policy.team, "g"):
-                        self.policy.team.g, self.policy.team.closed = self.pg, self.closed
+                        team = self.policy.team
+                        if hasattr(team, "gf") and getattr(team, "metric", "road") == "road":
+                            # officers drive through barricades, the fugitive does not (MacroTeamPolicy plans
+                            # officers on g and the fugitive on gf)
+                            team.g, team.gf = self.og, self.pg
+                        elif not hasattr(team, "gf"):
+                            team.g = _PoliceFugitiveGraph(self.og, self.pg)
+                        team.closed = self.closed
                     goals = self.policy.targets(tuple(police_pl), fug_pl, int(t), self.case.max_steps, tuple(headings))
                     if any(self.kit) or self.released:
                         goals = self._deploy(goals, t)
@@ -1120,6 +1332,7 @@ class SumoPursuit:
                     route = list(c.vehicle.getRoute(self.fid))     # within the junction's single simulation step
                     ridx = max(int(c.vehicle.getRouteIndex(self.fid)), 0)
                     departure_edges = route[ridx:ridx + 2]
+                self._gate_blockers()
                 c.simulationStep()
                 i += 1
                 t = i * self.dt
