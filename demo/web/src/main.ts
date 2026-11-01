@@ -15,10 +15,19 @@ const OUTCOME: Record<string, string> = { success: "검거", escape: "탈출", t
 const ENGINE: Record<string, string> = { sumo: "SUMO", point: "빠른 시뮬레이터" };
 
 // ---------------------------------------------------------------------------------------------
-// server address: build-time VITE_API_BASE, overridable in the panel (kept in this browser)
+// Server address: a user override is kept in this browser.  Quick-tunnel addresses expire, so a
+// previously stored trycloudflare URL must not pin returning visitors to a dead backend after a redeploy.
+const CURRENT_QUICK_TUNNEL = "https://fairfield-inherited-buyer-facts.trycloudflare.com";
 function readStored(): string | null { try { return localStorage.getItem("apiBase"); } catch { return null; } }
 function readSessionToken(): string { try { return sessionStorage.getItem("apiToken") ?? ""; } catch { return ""; } }
-let apiBase = (readStored() ?? (import.meta.env.VITE_API_BASE as string | undefined) ?? "").replace(/\/$/, "");
+const storedApiBase = readStored();
+const staleQuickTunnel = !!storedApiBase && storedApiBase.includes(".trycloudflare.com")
+  && storedApiBase !== CURRENT_QUICK_TUNNEL;
+let apiBase = (staleQuickTunnel ? CURRENT_QUICK_TUNNEL
+  : storedApiBase ?? CURRENT_QUICK_TUNNEL).replace(/\/$/, "");
+if (staleQuickTunnel) {
+  try { localStorage.setItem("apiBase", apiBase); } catch { /* storage unavailable: keep in memory */ }
+}
 let apiToken = readSessionToken();
 const api = (path: string) => `${apiBase}${path}`;
 function apiHeaders(base: HeadersInit = {}) {
